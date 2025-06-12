@@ -108,13 +108,12 @@ def keyspace_has_tablets(cql, keyspace):
 #   with new_test_keyspace(cql, '...') as keyspace:
 # This is not a fixture - see those in conftest.py.
 @contextmanager
-def new_test_keyspace(cql, opts):
-    keyspace = unique_name()
-    cql.execute("CREATE KEYSPACE " + keyspace + " " + opts)
+def new_test_keyspace(cql, opts, name=unique_name()):
+    cql.execute("CREATE KEYSPACE " + name + " " + opts)
     try:
-        yield keyspace
+        yield name
     finally:
-        cql.execute("DROP KEYSPACE " + keyspace)
+        cql.execute("DROP KEYSPACE " + name)
 
 # A utility function for creating a new temporary table with a given schema.
 # Because Scylla becomes slower when a huge number of uniquely-named tables
@@ -174,10 +173,12 @@ def new_aggregate(cql, keyspace, body):
 # A utility function for creating a new temporary materialized view in
 # an existing table.
 @contextmanager
-def new_materialized_view(cql, table, select, pk, where, extra=""):
-    keyspace = table.split('.')[0]
-    mv = keyspace + "." + unique_name()
-    cql.execute(f"CREATE MATERIALIZED VIEW {mv} AS SELECT {select} FROM {table} WHERE {where} PRIMARY KEY ({pk}) {extra}")
+def new_materialized_view(cql, table, select, pk, where, extra="", name=unique_name()):
+    keyspace = table.split(".")[0]
+    mv = keyspace + "." + name
+    cql.execute(
+        f"CREATE MATERIALIZED VIEW {mv} AS SELECT {select} FROM {table} WHERE {where} PRIMARY KEY ({pk}) {extra}"
+    )
     try:
         yield mv
     finally:
