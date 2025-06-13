@@ -58,12 +58,6 @@ def padded_name(length):
     return u + "x" * (length - len(u))
 
 
-# The schema for the test tables used in this module.
-SCHEMA = "p int, x int, PRIMARY KEY (p)"
-
-# The replication used in keyspace used in this module.
-REPLICATION = "WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}"
-
 # The ScyllaDB names limit. Check schema::NAME_LENGTH definition for details.
 NAME_MAX_LENGTH = 207
 
@@ -73,6 +67,46 @@ NAME_ALLOWED_CHARACTERS = (
 )
 
 
+# Utility function to create a new keyspace with the given name.
+# Created to avoid passing the same replication option in every tests.
+@contextmanager
+def new_keyspace(cql, name=unique_name()):
+    with new_test_keyspace(
+        cql,
+        "WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}",
+        name,
+    ) as keyspace:
+        yield keyspace
+
+
+# Utility function to create a new table with the given name.
+# Created to avoid passing the same schema option in every tests.
+@contextmanager
+def new_table(cql, keyspace, name=None, extra=""):
+    schema = "p int, x int, PRIMARY KEY (p)"
+    if name is None:
+        with new_test_table(cql, keyspace, schema, extra=extra) as table:
+            yield table
+    else:
+        with new_named_test_table(cql, keyspace, name, schema, extra=extra) as table:
+            yield table
+
+
+# Utility function to create a materialized view with the given name.
+# Created to avoid passing the same parameter values in every tests.
+@contextmanager
+def new_mv(cql, table, name):
+    with new_materialized_view(
+        cql,
+        table,
+        "*",
+        "p, x",
+        "p is not null and x is not null",
+        name=name,
+    ) as mv:
+        yield mv
+
+
 # Cassandra's documentation states that "Both keyspace and table name ... are
 # limited in size to 48 characters". This was actually only true in Cassandra
 # 3, and by Cassandra 4 and 5 this limitation was dropped (see discussion
@@ -80,12 +114,7 @@ NAME_ALLOWED_CHARACTERS = (
 # Verifies that a table name of exactly 207 characters is accepted.
 # Reproduces #4480".
 def test_table_name_length_eq_scylla_limit(cql, test_keyspace):
-    with new_named_test_table(
-        cql,
-        test_keyspace,
-        padded_name(NAME_MAX_LENGTH),
-        SCHEMA,
-    ):
+    with new_table(cql, test_keyspace, padded_name(NAME_MAX_LENGTH)):
         pass
 
 
@@ -97,7 +126,7 @@ def test_table_name_length_eq_scylla_limit(cql, test_keyspace):
 def test_table_name_length_gt_the_scylla_limit(cql, test_keyspace):
     name = padded_name(NAME_MAX_LENGTH + 1)
     with passes_or_raises(InvalidRequest, match=name):
-        with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+        with new_table(cql, test_keyspace, name):
             pass
 
 
@@ -109,18 +138,19 @@ def test_table_name_length_gt_the_scylla_limit(cql, test_keyspace):
 def test_table_name_length_500(cql, test_keyspace, cassandra_bug):
     name = padded_name(500)
     with pytest.raises(InvalidRequest, match=name):
-        with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+        with new_table(cql, test_keyspace, name):
             pass
 
 
 # Verifies that a table name of exactly 207 characters is accepted when CDC is enabled.
 def test_table_name_length_eq_scylla_limit_and_cdc_enabled(cql):
-    with new_test_keyspace(cql, REPLICATION) as keyspace:
-        with new_named_test_table(
+    with new_keyspace(
+        cql,
+    ) as keyspace:
+        with new_table(
             cql,
             keyspace,
             padded_name(NAME_MAX_LENGTH),
-            SCHEMA,
             extra="with cdc = {'enabled': true}",
         ):
             pass
@@ -129,7 +159,7 @@ def test_table_name_length_eq_scylla_limit_and_cdc_enabled(cql):
 # Verifies that a table name with all allowed characters is accepted.
 def test_table_name_contains_allowed_characters(cql, test_keyspace):
     name = NAME_ALLOWED_CHARACTERS
-    with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+    with new_table(cql, test_keyspace, name):
         pass
 
 
@@ -137,7 +167,7 @@ def test_table_name_contains_allowed_characters(cql, test_keyspace):
 def test_table_name_contains_disallowed_character(cql, test_keyspace):
     name = "table-name-with-dash-which-is-not-allowed"
     with pytest.raises(SyntaxException):
-        with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+        with new_table(cql, test_keyspace, name):
             pass
 
 
@@ -145,7 +175,7 @@ def test_table_name_contains_disallowed_character(cql, test_keyspace):
 def test_table_name_contains_disallowed_character_in_quotes(cql, test_keyspace):
     name = '"table-name-with-dash-which-is-not-allowed"'
     with pytest.raises(InvalidRequest, match=name):
-        with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+        with new_table(cql, test_keyspace, name):
             pass
 
 
@@ -153,39 +183,38 @@ def test_table_name_contains_disallowed_character_in_quotes(cql, test_keyspace):
 def test_table_name_starts_with_underscore(cql, test_keyspace):
     name = "_table_name_starting_with_underscore"
     with pytest.raises(SyntaxException):
-        with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+        with new_table(cql, test_keyspace, name):
             pass
 
 
 # Verifies that a table name starting with _ in quotes is accepted.
 def test_table_name_starts_with_underscore_in_quotes(cql, test_keyspace):
     name = '"_table_name_starting_with_underscore"'
-    with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+    with new_table(cql, test_keyspace, name):
         pass
 
 
 # Verifies that table names are case-insensitive when not quoted.
 def test_table_name_is_case_insensitivity_when_not_quoted(cql, test_keyspace):
     name = "TABLE_NAME_CASE_INSENSITIVE"
-    with new_named_test_table(cql, test_keyspace, name, SCHEMA):
+    with new_table(cql, test_keyspace, name):
         with pytest.raises(AlreadyExists):
-            with new_named_test_table(cql, test_keyspace, name.lower(), SCHEMA):
+            with new_table(cql, test_keyspace, name.lower()):
                 pass
 
 
 # Verifies that table names are case-sensitive when quoted.
 def test_table_name_is_case_sensitivity_when_quoted(cql, test_keyspace):
     name = '"TABLE_NAME_CASE_SENSITIVE"'
-    with new_named_test_table(cql, test_keyspace, name, SCHEMA):
-        with new_named_test_table(cql, test_keyspace, name.lower(), SCHEMA):
+    with new_table(cql, test_keyspace, name):
+        with new_table(cql, test_keyspace, name.lower()):
             pass
 
 
 # Verifies that a keyspace name of exactly 207 characters is accepted.
 def test_keyspace_name_length_eq_scylla_limit(cql):
-    with new_test_keyspace(
+    with new_keyspace(
         cql,
-        REPLICATION,
         name=padded_name(NAME_MAX_LENGTH),
     ):
         pass
@@ -199,9 +228,8 @@ def test_keyspace_name_length_eq_scylla_limit(cql):
 def test_keyspace_name_length_gt_than_scylla_limit(cql):
     name = padded_name(NAME_MAX_LENGTH + 1)
     with passes_or_raises(InvalidRequest, match=name):
-        with new_test_keyspace(
+        with new_keyspace(
             cql,
-            REPLICATION,
             name=name,
         ):
             pass
@@ -210,9 +238,8 @@ def test_keyspace_name_length_gt_than_scylla_limit(cql):
 # Verifies that a keyspace name with all allowed characters is accepted.
 def test_keyspace_name_contains_allowed_characters(cql):
     name = NAME_ALLOWED_CHARACTERS
-    with new_test_keyspace(
+    with new_keyspace(
         cql,
-        REPLICATION,
         name=name,
     ):
         pass
@@ -222,9 +249,8 @@ def test_keyspace_name_contains_allowed_characters(cql):
 def test_keyspace_name_contains_disallowed_character(cql):
     name = "keyspace-name-with-dash-which-is-not-allowed"
     with pytest.raises(SyntaxException):
-        with new_test_keyspace(
+        with new_keyspace(
             cql,
-            "WITH REPLICATION = {'class': 'SimpleStrategy', 'replication_factor': 1}",
             name=name,
         ):
             pass
@@ -234,9 +260,8 @@ def test_keyspace_name_contains_disallowed_character(cql):
 def test_keyspace_name_contains_disallowed_character_in_quotes(cql):
     name = '"keyspace-name-with-dash-which-is-not-allowed"'
     with pytest.raises(InvalidRequest, match=name):
-        with new_test_keyspace(
+        with new_keyspace(
             cql,
-            REPLICATION,
             name=name,
         ):
             pass
@@ -246,9 +271,8 @@ def test_keyspace_name_contains_disallowed_character_in_quotes(cql):
 def test_keyspace_name_starts_with_underscore(cql):
     name = "_keyspace_name_starting_with_underscore"
     with pytest.raises(SyntaxException):
-        with new_test_keyspace(
+        with new_keyspace(
             cql,
-            REPLICATION,
             name=name,
         ):
             pass
@@ -257,9 +281,8 @@ def test_keyspace_name_starts_with_underscore(cql):
 # Verifies that a keyspace name starting with _ in quotes is accepted.
 def test_keyspace_name_starts_with_underscore_in_quotes(cql):
     name = '"_keyspace_name_starting_with_underscore"'
-    with new_test_keyspace(
+    with new_keyspace(
         cql,
-        REPLICATION,
         name=name,
     ):
         pass
@@ -268,15 +291,13 @@ def test_keyspace_name_starts_with_underscore_in_quotes(cql):
 # Verifies that keyspace names are case-insensitive when not quoted.
 def test_keyspace_name_is_case_insensitivity_when_not_quoted(cql):
     name = "KEYSPACE_NAME_CASE_INSENSITIVE"
-    with new_test_keyspace(
+    with new_keyspace(
         cql,
-        REPLICATION,
         name=name,
     ):
         with pytest.raises(AlreadyExists):
-            with new_test_keyspace(
+            with new_keyspace(
                 cql,
-                REPLICATION,
                 name=name.lower(),
             ):
                 pass
@@ -285,14 +306,12 @@ def test_keyspace_name_is_case_insensitivity_when_not_quoted(cql):
 # Verifies that keyspace names are case-sensitive when quoted.
 def test_keyspace_name_is_case_sensitivity_when_quoted(cql):
     name = '"KEYSPACE_NAME_CASE_SENSITIVE"'
-    with new_test_keyspace(
+    with new_keyspace(
         cql,
-        REPLICATION,
         name=name,
     ):
-        with new_test_keyspace(
+        with new_keyspace(
             cql,
-            REPLICATION,
             name=name.lower(),
         ):
             pass
@@ -300,15 +319,11 @@ def test_keyspace_name_is_case_sensitivity_when_quoted(cql):
 
 # Verifies that a materialized view name of exactly 207 characters is accepted.
 def test_mv_name_length_eq_scylla_limit(cql, test_keyspace):
-    with new_test_table(cql, test_keyspace, SCHEMA) as table:
-        pass
-        with new_materialized_view(
+    with new_table(cql, test_keyspace) as table:
+        with new_mv(
             cql,
             table,
-            "*",
-            "p, x",
-            "p is not null and x is not null",
-            name=padded_name(NAME_MAX_LENGTH),
+            padded_name(NAME_MAX_LENGTH),
         ):
             pass
 
@@ -320,22 +335,19 @@ def test_mv_name_length_eq_scylla_limit(cql, test_keyspace):
 # some other error.
 def test_mv_name_length_gt_than_scylla_limit(cql, test_keyspace):
     name = padded_name(NAME_MAX_LENGTH + 1)
-    with new_test_table(cql, test_keyspace, SCHEMA) as table:
+    with new_table(cql, test_keyspace) as table:
         with passes_or_raises(InvalidRequest, match=name):
-            with new_materialized_view(
+            with new_mv(
                 cql,
                 table,
-                "*",
-                "p, x",
-                "p is not null and x is not null",
-                name=name,
+                name,
             ):
                 pass
 
 
 # Verifies that a secondary index name of exactly 207 characters is accepted.
 def test_index_name_length_eq_scylla_limit(cql, test_keyspace):
-    with new_test_table(cql, test_keyspace, SCHEMA) as table:
+    with new_table(cql, test_keyspace) as table:
         with new_secondary_index(cql, table, "x", padded_name(NAME_MAX_LENGTH)):
             pass
 
@@ -347,7 +359,7 @@ def test_index_name_length_eq_scylla_limit(cql, test_keyspace):
 # some other error.
 def test_index_name_length_gt_than_scylla_limit(cql, test_keyspace):
     name = padded_name(NAME_MAX_LENGTH + 1)
-    with new_test_table(cql, test_keyspace, SCHEMA) as table:
+    with new_table(cql, test_keyspace) as table:
         with passes_or_raises(InvalidRequest, match=name):
             with new_secondary_index(cql, table, "x", name):
                 pass
