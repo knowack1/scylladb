@@ -197,3 +197,5 @@ def test_column_name_length(cql, test_keyspace):
             "p int primary key, " + padded_name(SCYLLA_NAME_MAX_LENGTH) * 2 + " int",
     ):
         pass
+
+# TODO: add tests for the allowed characters in a table name
