@@ -223,14 +223,12 @@ def test_keyspace_name_length_eq_scylla_limit(cql):
         pass
 
 
-# Verifies that a keyspace name longer than 207 characters is accepted (Cassandra 4/5)
-# or rejected with an InvalidRequest exception (Scylla/Cassandra 3).
-# The error message must contain the name of the keyspace, so that we can
-# verify that the test is actually testing the name length limit, and not
-# some other error.
+# Verifies that a keyspace name longer than 207 characters is rejected with an InvalidRequest exception.
+# The error message must contain the name of the keyspace,
+# so that we can verify that the test is actually testing the name length limit, and not some other error.
 def test_keyspace_name_length_gt_than_scylla_limit(cql):
     name = padded_name(NAME_MAX_LENGTH + 1)
-    with passes_or_raises(InvalidRequest, match=name):
+    with pytest.raises(InvalidRequest, match=name):
         with new_keyspace(
             cql,
             name=name,
