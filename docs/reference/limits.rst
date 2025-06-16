@@ -54,7 +54,7 @@ CQL Limits
        Hundreds of kilobytes (good latency) or megabytes (mediocre latency)
    * - Key length
      - 65533
-   * - Keyspace / Table / View / Index / Column name length
+   * - Keyspace / Table / View / Index name length
      - 207 characters
    * - Query parameters in a query
      - 65535 (2^16-1)

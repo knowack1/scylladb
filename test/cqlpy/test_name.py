@@ -367,29 +367,6 @@ def test_index_name_length_gt_than_scylla_limit(cql, test_keyspace):
             with new_secondary_index(cql, table, "x", name):
                 pass
 
-
-# Verifies that a column name of exactly 207 characters is accepted.
-def test_column_name_length_eq_scylla_limit(cql, test_keyspace):
-    with new_test_table(
-        cql,
-        test_keyspace,
-        "p int primary key, " + padded_name(NAME_MAX_LENGTH) + " int",
-    ):
-        pass
-
-
-# Verifies that a column name longer than 207 characters is accepted (Cassandra 4/5)
-# or rejected with an InvalidRequest exception (Scylla/Cassandra 3).
-# The error message must contain the name of the column, so that we can
-# verify that the test is actually testing the name length limit, and not
-# some other error.
-def test_column_name_length_gt_than_scylla_limit(cql, test_keyspace):
-    name = padded_name(NAME_MAX_LENGTH + 1)
-    with passes_or_raises(InvalidRequest, match=name):
-        with new_test_table(cql, test_keyspace, "p int primary key, " + name + " int"):
-            pass
-
-
 # Verifies that function names are not limited by MAX_NAME_LENGTH (can be much longer).
 def test_function_name_length(cql, test_keyspace):
     with new_function(
@@ -403,5 +380,14 @@ def test_function_name_length(cql, test_keyspace):
      AS 'return 0'
      """,
         name=padded_name(NAME_MAX_LENGTH * 2),
+    ):
+        pass
+
+# Verifies that column names are not limited by MAX_NAME_LENGTH (can be much longer).
+def test_column_name_length_eq_scylla_limit(cql, test_keyspace):
+    with new_test_table(
+        cql,
+        test_keyspace,
+        "p int primary key, " + padded_name(NAME_MAX_LENGTH) * 2+ " int",
     ):
         pass
