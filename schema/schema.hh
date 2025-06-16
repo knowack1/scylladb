@@ -623,7 +623,9 @@ public:
     // It is Cassandra 4 and 5 compatible except for the "_cdc" suffix, which is not used in Cassandra.
     static constexpr size_t NAME_LENGTH = 255 - 32 // 32 bytes for UUID
                                           - 1      // 1 byte for the dash (-) between the name and the UUID
-                                          - 15;    // 15 bytes for the "_scylla_cdc_log" suffix in case of CDC-enabled tables
+                                          - 15;    // 15 bytes for the "_scylla_cdc_log" suffix (cdc_log_suffix from cdc/log.cc).
+                                                   // Although this is only relevant to table names (not keyspace or view names),
+                                                   // for simplicity we use the same limit for all those names.
 
     struct column {
         bytes name;
