@@ -82,12 +82,12 @@ def test_table_name_length_48(cql, test_keyspace):
 
 # After Cassandra removed the 48-character limit for table names, some applications began creating tables with longer names.
 # ScyllaDB relaxed its own limit to maintain compatibility with these applications.
-# Due to CDC-enabled tables, ScyllaDB enforces a 207-character limit (see schema::NAME_LENGTH for details),
+# Due to CDC-enabled tables, ScyllaDB enforces a 192-character limit (see schema::NAME_LENGTH for details),
 # while Cassandra allows names up to 222 characters.
-# The 207-character limit in ScyllaDB is considered sufficient for most use cases.
-# Test verifies that a 207-character name is allowed, and passes on Scylla and latest Cassandra versions (4 and 5).
-def test_table_name_length_207(cql, test_keyspace):
-    with new_table(cql, test_keyspace, padded_name(207)):
+# The 192-character limit in ScyllaDB is considered sufficient for most use cases.
+# Test verifies that a 192-character name is allowed, and passes on Scylla and latest Cassandra versions (4 and 5).
+def test_table_name_length_192(cql, test_keyspace):
+    with new_table(cql, test_keyspace, padded_name(192)):
         pass
 
 # If we try an even longer table name length, e.g., 500 characters, we run
@@ -102,12 +102,12 @@ def test_table_name_length_500(cql, test_keyspace, cassandra_bug):
         with new_table(cql, test_keyspace, name):
             pass
 
-# Test verifies that a 207-character name for CDC enabled table is accepted for Scylla and Cassandra 4/5.
-def test_table_cdc_name_length_207(cql):
+# Test verifies that a 192-character name for CDC enabled table is accepted for Scylla and Cassandra 4/5.
+def test_table_cdc_name_length_192(cql):
     # Incompatible Cassandra <-> Scylla API to enable CDC. See #9859.
     cdc = "{'enabled': true}" if is_scylla(cql) else 'true'
     with new_keyspace(cql) as keyspace:
-        with new_table(cql, keyspace, padded_name(207), extra=f"with CDC = {cdc}"):
+        with new_table(cql, keyspace, padded_name(192), extra=f"with CDC = {cdc}"):
             pass
 
 # When ScyllaDB lifted the table name length restriction, it also lifted the limit on keyspace name length.
@@ -117,10 +117,10 @@ def test_keyspace_name_length_48(cql):
     with new_keyspace(cql, padded_name(48)):
         pass
 
-# Test verifies that a keyspace name of exactly 207 is accepted by ScyllaDB.
+# Test verifies that a keyspace name of exactly 192 is accepted by ScyllaDB.
 # Marked scylla_only because Cassandra keeps the 48-character limit for keyspace names.
-def test_keyspace_name_length_207(cql, scylla_only):
-    with new_keyspace(cql, padded_name(207)):
+def test_keyspace_name_length_192(cql, scylla_only):
+    with new_keyspace(cql, padded_name(192)):
         pass
 
 # Test verifies that too long keyspace (exceeding filesystem capabilities) is gracefully rejected.
@@ -131,9 +131,9 @@ def test_keyspace_name_length_500(cql):
             pass
 
 # Test verifies that materialized view names follow the same length rules as table names.
-def test_mv_name_length_207(cql, test_keyspace):
+def test_mv_name_length_192(cql, test_keyspace):
     with new_table(cql, test_keyspace) as table:
-        with new_mv(cql, table, padded_name(207)):
+        with new_mv(cql, table, padded_name(192)):
             pass
 
 # Test verifies that materialized view names follow the same length rules as table names.
@@ -146,9 +146,9 @@ def test_mv_name_length_500(cql, test_keyspace, cassandra_bug):
                 pass
 
 # Test verifies that secondary index names follow the same length rules as table names.
-def test_index_name_length_207(cql, test_keyspace):
+def test_index_name_length_192(cql, test_keyspace):
     with new_table(cql, test_keyspace) as table:
-        with new_secondary_index(cql, table, "x", padded_name(207)):
+        with new_secondary_index(cql, table, "x", padded_name(192)):
             pass
 
 # Test verifies that secondary index names follow the same length rules as table names.

@@ -55,7 +55,7 @@ CQL Limits
    * - Key length
      - 65533
    * - Keyspace / Table / View / Index name length
-     - 207 characters
+     - 192 characters
    * - Query parameters in a query
      - 65535 (2^16-1)
    * - Statements in a batch

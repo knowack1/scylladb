@@ -1921,7 +1921,7 @@ SEASTAR_TEST_CASE(test_select_multiple_ranges) {
 SEASTAR_TEST_CASE(test_validate_keyspace) {
     return do_with_cql_env([] (cql_test_env& e) {
         return make_ready_future<>().then([&e] {
-            constexpr auto NAME_MAX_LENGTH = 207; // check schema::NAME_LENGTH
+            constexpr auto NAME_MAX_LENGTH = 192; // check schema::NAME_LENGTH
             sstring keyspace_name(NAME_MAX_LENGTH + 1, 'k');
             return e.execute_cql(format("create keyspace {} with replication = {{ 'class' : 'NetworkTopologyStrategy', 'replication_factor' : 1 }};", keyspace_name));
         }).then_wrapped([&e] (future<shared_ptr<cql_transport::messages::result_message>> f) {
@@ -1945,7 +1945,7 @@ SEASTAR_TEST_CASE(test_validate_keyspace) {
 SEASTAR_TEST_CASE(test_validate_table) {
     return do_with_cql_env([] (cql_test_env& e) {
         return make_ready_future<>().then([&e] {
-            constexpr auto NAME_MAX_LENGTH = 207; // check schema::NAME_LENGTH
+            constexpr auto NAME_MAX_LENGTH = 192; // check schema::NAME_LENGTH
             sstring table_name(NAME_MAX_LENGTH + 1, 't');
             return e.execute_cql(format("create table {} (foo text PRIMARY KEY, bar text);", table_name));
         }).then_wrapped([&e] (future<shared_ptr<cql_transport::messages::result_message>> f) {

@@ -626,9 +626,12 @@ public:
     // CDC-enabled table names (see cdc_log_suffix in cdc/log.cc). While this suffix
     // only applies to table names, for simplicity, the same length restriction is enforced for
     // keyspace, view, and index names as well.
+    // The reserved 15 bytes are for future use, allowing for potential future extensions without
+    // breaking existing schemas.
     static constexpr size_t NAME_LENGTH = 255 - 32 // 32 bytes for UUID
                                           - 1      // 1 byte for the dash (-) between the name and the UUID
-                                          - 15;    // 15 bytes for the "_scylla_cdc_log" suffix.
+                                          - 15     // 15 bytes for the "_scylla_cdc_log" suffix.
+                                          - 15;    // 15 bytes reserved for future use.
 
     struct column {
         bytes name;

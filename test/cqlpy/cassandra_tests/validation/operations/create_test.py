@@ -295,7 +295,7 @@ def testKeyspace(cql):
 
     execute(cql, n, "CREATE KEYSPACE %s WITH replication = { 'class' : 'SimpleStrategy', 'replication_factor' : 1 }")
     execute(cql, n, "DROP KEYSPACE %s")
-    too_long_keyspace_name = "k" * 208
+    too_long_keyspace_name = "k" * 500
     assertInvalid(cql, "", 
          f"CREATE KEYSPACE {too_long_keyspace_name} WITH replication = {{ 'class' : 'SimpleStrategy', 'replication_factor' : 1 }}")
 

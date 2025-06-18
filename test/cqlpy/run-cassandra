@@ -131,6 +131,7 @@ def run_cassandra_cmd(pid, dir):
               '--add-opens java.base/jdk.internal.util.jar=ALL-UNNAMED\n'
               '--add-opens jdk.management/com.sun.management.internal=ALL-UNNAMED\n',
               file=f)
+    # import pdb;pdb.set_trace()
     return ([cassandra, '-f'], env)
 
 # Same as run_cassandra_cmd, just use SSL encryption for the CQL port (same
