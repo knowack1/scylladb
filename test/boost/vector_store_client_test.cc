@@ -523,6 +523,7 @@ SEASTAR_TEST_CASE(vector_store_client_uri_update_to_empty) {
     cfg.vector_store_uri.set("");
 
     BOOST_CHECK(vs.is_disabled());
+
     co_await vs.stop();
 }
 
@@ -530,11 +531,11 @@ SEASTAR_TEST_CASE(vector_store_client_uri_update_to_non_empty) {
     auto cfg = config();
     std::vector<std::string> resolved;
     auto vs = vector_store_client{cfg};
-
-    vector_store_client_tester::set_dns_resolver(configure(vs), [&resolved](auto const& host) -> future<std::optional<inet_address>> {
+    configure(vs).with_dns_refresh_interval(milliseconds(10)).with_dns_resolver([&resolved](auto const& host) -> future<std::optional<inet_address>> {
         resolved.push_back(host);
         co_return inet_address("127.0.0.1");
     });
+
     vs.start_background_tasks();
 
     cfg.vector_store_uri.set("http://good.authority.here:6080");
@@ -545,6 +546,23 @@ SEASTAR_TEST_CASE(vector_store_client_uri_update_to_non_empty) {
         co_return resolved.size() > 0;
     }));
     BOOST_CHECK_EQUAL(resolved.back(), "good.authority.here");
+
+    co_await vs.stop();
+}
+
+SEASTAR_TEST_CASE(vector_store_client_uri_update_to_invalid) {
+    auto cfg = config();
+    cfg.vector_store_uri.set("http://good.authority.here:6080");
+    auto vs = vector_store_client{cfg};
+
+    vs.start_background_tasks();
+
+    cfg.vector_store_uri.set("invalid-uri");
+
+
+    // vs becomes disabled
+    BOOST_CHECK(vs.is_disabled());
+
     co_await vs.stop();
 }
 
@@ -577,7 +595,9 @@ SEASTAR_TEST_CASE(vector_store_client_uri_update) {
                 auto schema = co_await create_test_table(env, "ks", "idx");
                 auto& vs = env.local_qp().vector_store_client();
                 constexpr auto DNS_REFRESH_INTERVAL = std::chrono::milliseconds(10);
-                configure(vs, {{"good.authority.here", "127.0.0.1"}}, DNS_REFRESH_INTERVAL).start_background_tasks();
+                configure(vs).with_dns_refresh_interval(DNS_REFRESH_INTERVAL).with_dns({{"good.authority.here", "127.0.0.1"}});
+
+                vs.start_background_tasks();
 
                 env.db_config().vector_store_uri.set(format("http://good.authority.here:{}", addr_s2.port()));
 

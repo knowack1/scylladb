@@ -247,6 +247,23 @@ public:
     }
 };
 
+bool should_vector_store_service_be_disabled(std::string_view const& uri) {
+    return uri.empty();
+}
+
+auto get_host_port(std::string_view uri) -> std::optional<host_port> {
+    if (should_vector_store_service_be_disabled(uri)) {
+        vslogger.info("Vector Store service URI is empty, disabling Vector Store service");
+        return std::nullopt;
+    }
+    auto parsed = parse_service_uri(uri);
+    if (!parsed) {
+        throw configuration_exception(format("Invalid Vector Store service URI: {}", uri));
+    }
+    vslogger.info("Vector Store service URI is set to '{}'", uri);
+    return *parsed;
+}
+
 } // namespace
 
 namespace service {
@@ -270,9 +287,12 @@ struct vector_store_client::impl {
 
     impl(utils::config_file::named_value<sstring> cfg)
         : uri_observer(cfg.observe([this](std::string_view uri) {
-            _host_port = get_host_port(uri);
-            trigger_dns_refresh();
-            vslogger.info("Vector Store service URI changed to '{}'", uri);
+            try {
+                _host_port = get_host_port(uri);
+            } catch (const configuration_exception& e) {
+                vslogger.error("Failed to parse Vector Store service URI: {}", e.what());
+                _host_port = std::nullopt;
+            }
         }))
         , _host_port(get_host_port(cfg()))
         , dns_resolver([](auto const& host) -> future<std::optional<inet_address>> {
@@ -333,7 +353,7 @@ struct vector_store_client::impl {
         }
 
         old_clients.emplace_back(current_client);
-        current_client = make_lw_shared<http_client>(_host_port, std::move(*new_addr));
+        current_client = make_lw_shared<http_client>(*_host_port, std::move(*new_addr));
     }
 
     /// A task for refreshing the vector store http client.
@@ -519,17 +539,11 @@ auto vector_store_client::is_disabled() const -> bool {
 }
 
 auto vector_store_client::host() const -> std::expected<host_name, disabled> {
-    if (is_disabled()) {
-        return std::unexpected{disabled{}};
-    }
-    return {_impl->_host_port.host};
+    return _impl->host();
 }
 
 auto vector_store_client::port() const -> std::expected<port_number, disabled> {
-    if (is_disabled()) {
-        return std::unexpected{disabled{}};
-    }
-    return {_impl->_host_port.port};
+    return _impl->port();
 }
 
 auto vector_store_client::ann(keyspace_name keyspace, index_name name, schema_ptr schema, embedding embedding, limit limit, abort_source& as)
