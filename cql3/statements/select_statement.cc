@@ -890,7 +890,7 @@ future<coordinator_result<std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, 
 future<coordinator_result<std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>>>>
 indexed_table_select_statement::do_execute_base_query(query_processor& qp, std::vector<primary_key>&& primary_keys, service::query_state& state,
         const query_options& options, gc_clock::time_point now, lw_shared_ptr<const service::pager::paging_state> paging_state) const {
-    using value_type = std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>>;
+    // using value_type = std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>>;
     auto cmd = prepare_command_for_base_query(qp, options, state, now, bool(paging_state));
     auto timeout = db::timeout_clock::now() + get_timeout(state.get_client_state(), options);
 
@@ -2189,7 +2189,7 @@ ordered_by_ann_of_select_statement::do_execute(query_processor& qp,
     //     co_return co_await execute_non_aggregate_unpaged(qp, std::move(cmd), std::move(partition_ranges), state, options, now);
     // }
 
-    future<coordinator_result<std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>>>>
+    // future<coordinator_result<std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>>>>
 
     auto slice = make_partition_slice(options);
     // if (use_paging) {
@@ -2199,59 +2199,28 @@ ordered_by_ann_of_select_statement::do_execute(query_processor& qp,
     //         slice.options.set<query::partition_slice::option::send_clustering_key>();
     //     }
     // }
-    lw_shared_ptr<query::read_command> cmd = ::make_lw_shared<query::read_command>(
-            _schema->id(),
-            _schema->version(),
-            std::move(slice),
-            qp.proxy().get_max_result_size(slice),
-            query::tombstone_limit(qp.proxy().get_tombstone_limit()),
-            query::row_limit(get_inner_loop_limit(get_limit(options, _limit), _selection->is_aggregate())),
-            query::partition_limit(query::max_partitions),
-            now,
-            tracing::make_trace_info(state.get_trace_state()),
-            query_id::create_null_id(),
-            query::is_first_page::no,
-            options.get_timestamp(state));
-    cmd->allow_limit = db::allow_per_partition_rate_limit::yes;
+    lw_shared_ptr<query::read_command> command = ::make_lw_shared<query::read_command>(_schema->id(), _schema->version(), std::move(slice),
+            qp.proxy().get_max_result_size(slice), query::tombstone_limit(qp.proxy().get_tombstone_limit()),
+            query::row_limit(get_inner_loop_limit(get_limit(options, _limit), _selection->is_aggregate())), query::partition_limit(query::max_partitions), now,
+            tracing::make_trace_info(state.get_trace_state()), query_id::create_null_id(), query::is_first_page::no, options.get_timestamp(state));
+    command->allow_limit = db::allow_per_partition_rate_limit::yes;
     // return cmd;
 
     // auto cmd = prepare_command_for_base_query(qp, options, state, now, bool(paging_state));
     auto timeout = db::timeout_clock::now() + get_timeout(state.get_client_state(), options);
 
-    do_execute_base_query_impl(qp, std::move(cmd), _schema, std::move(pkeys), state, options, timeout, nullptr);
-
-//       return do_execute_base_query(qp, std::move(primary_keys), state, options, now, paging_state).then(wrap_result_to_error_message(
-//             [this, &state, &options, now, paging_state = std::move(paging_state)] (std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>> result_and_cmd){
-//         auto&& [result, cmd] = result_and_cmd;
-//         return process_base_query_results(std::move(result), std::move(cmd), state, options, now, std::move(paging_state));
-//     }));
-// }
+    // auto query_result = co_await do_execute_base_query_impl(qp, std::move(command), _schema, std::move(pkeys.value()), state, options, timeout, nullptr);
+    // auto [result, cmd] = co_await wrap_result_to_error_message(query_result);
+    // co_return process_results(std::move(result), std::move(cmd), options, now);
+    // // = wrapped;
 
 
-
-    // auto cmd = prepare_command_for_base_query(qp, options, state, now, false);
-    // auto timeout = db::timeout_clock::now() + get_timeout(state.get_client_state(), options);
-    // query::result_merger merger(cmd->get_row_limit(), query::max_partitions);
-    // coordinator_result<foreign_ptr<lw_shared_ptr<query::result>>> rresult = co_await utils::result_map_reduce(pkeys->begin(), pkeys->end(), coroutine::lambda([&] (auto& key)
-    //         -> future<coordinator_result<foreign_ptr<lw_shared_ptr<query::result>>>> {
-    //     auto command = ::make_lw_shared<query::read_command>(*cmd);
-    //     command->slice._row_ranges.clear();
-    //     if (key.clustering) {
-    //         command->slice._row_ranges.push_back(query::clustering_range::make_singular(key.clustering));
-    //     }
-    //     coordinator_result<service::storage_proxy::coordinator_query_result> rqr
-    //             = co_await qp.proxy().query_result(_schema, command, {dht::partition_range::make_singular(key.partition)}, options.get_consistency(), {timeout, state.get_permit(), state.get_client_state(), state.get_trace_state()});
-    //     if (!rqr.has_value()) {
-    //         co_return std::move(rqr).as_failure();
-    //     }
-    //     co_return std::move(rqr.value().query_result);
-    // }), std::move(merger));
-
-    // if (rresult.has_error()) {
-    //     co_return failed_result_to_result_message(std::move(rresult));
-    // }
-
-    // co_return co_await process_base_query_results(std::move(rresult).assume_value(), std::move(cmd), state, options, now, nullptr);
+    co_return co_await do_execute_base_query_impl(qp, std::move(command), _schema, std::move(pkeys.value()), state, options, timeout, nullptr)
+            .then(wrap_result_to_error_message(
+                    [this, &options, now](std::tuple<foreign_ptr<lw_shared_ptr<query::result>>, lw_shared_ptr<query::read_command>> result_and_cmd) {
+                        auto&& [result, cmd] = result_and_cmd;
+                        return process_results(std::move(result), std::move(cmd), options, now);
+                    }));
 }
 
 
