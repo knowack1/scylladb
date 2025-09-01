@@ -2480,7 +2480,11 @@ std::unique_ptr<prepared_statement> select_statement::prepare(data_dictionary::d
                 prepare_limit(db, ctx, _per_partition_limit),
                 stats,
                 std::move(prepared_attrs));
-    } else if (restrictions->uses_secondary_indexing() || prepared_ann_ordering) {
+    } else if (prepared_ann_ordering) {
+        stmt = ordered_by_ann_of_select_statement::prepare(db, schema, ctx.bound_variables_size(), _parameters, std::move(selection), std::move(restrictions),
+                std::move(group_by_cell_indices), is_reversed_, std::move(ordering_comparator), std::move(prepared_ann_ordering),
+                prepare_limit(db, ctx, _limit), prepare_limit(db, ctx, _per_partition_limit), stats, std::move(prepared_attrs));
+    } else if (restrictions->uses_secondary_indexing()) {
         stmt = indexed_table_select_statement::prepare(
                 db,
                 schema,
