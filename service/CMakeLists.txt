@@ -34,7 +34,8 @@ target_sources(service
     topology_coordinator.cc
     topology_mutation.cc
     topology_state_machine.cc
-    vector_store_client.cc)
+    vector_store_client.cc
+    vector_search/high_availability.cc)
 target_include_directories(service
   PUBLIC
     ${CMAKE_SOURCE_DIR})

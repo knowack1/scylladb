@@ -580,6 +580,7 @@ scylla_tests = set([
     'test/boost/wrapping_interval_test',
     'test/boost/unique_view_test',
     'test/boost/scoped_item_list_test',
+    'test/boost/vector_search_test',
     'test/manual/ec2_snitch_test',
     'test/manual/enormous_table_scan_test',
     'test/manual/gce_snitch_test',
@@ -1240,6 +1241,7 @@ scylla_core = (['message/messaging_service.cc',
                 'reader_concurrency_semaphore_group.cc',
                 'utils/disk_space_monitor.cc',
                 'service/vector_store_client.cc',
+                'service/vector_search/high_availability.cc',
                 ] + [Antlr3Grammar('cql3/Cql.g')] \
                   + scylla_raft_core
                )
@@ -1627,6 +1629,7 @@ deps['test/raft/discovery_test'] =  ['test/raft/discovery_test.cc',
                                      'test/raft/helpers.cc',
                                      'test/lib/log.cc',
                                      'service/raft/discovery.cc'] + scylla_raft_dependencies
+deps['test/boost/vector_search_test'] = ['test/vector_search/high_availability_test.cc'] + scylla_core
 
 wasm_deps = {}
 
