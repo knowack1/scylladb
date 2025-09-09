@@ -1241,7 +1241,8 @@ scylla_core = (['message/messaging_service.cc',
                 'reader_concurrency_semaphore_group.cc',
                 'utils/disk_space_monitor.cc',
                 'service/vector_store_client.cc',
-                'service/vector_search/high_availability.cc',
+                'service/vector_search/node.cc',
+                'service/vector_search/client.cc',
                 ] + [Antlr3Grammar('cql3/Cql.g')] \
                   + scylla_raft_core
                )
@@ -1629,7 +1630,7 @@ deps['test/raft/discovery_test'] =  ['test/raft/discovery_test.cc',
                                      'test/raft/helpers.cc',
                                      'test/lib/log.cc',
                                      'service/raft/discovery.cc'] + scylla_raft_dependencies
-deps['test/boost/vector_search_test'] = ['test/vector_search/high_availability_test.cc'] + scylla_core
+deps['test/boost/vector_search_test'] = ['test/vector_search/high_availability_test.cc'] + scylla_core + alternator
 
 wasm_deps = {}
 
