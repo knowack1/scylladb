@@ -29,6 +29,8 @@ public:
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
 private:
+    seastar::future<std::vector<seastar::temporary_buffer<char>>> request(seastar::http::request req);
+
     endpoint _endpoint;
     seastar::http::experimental::client _http_client;
 };
