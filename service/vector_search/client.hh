@@ -12,8 +12,18 @@ namespace service::vector_search {
 class client {
 public:
     using ann_result = std::vector<seastar::temporary_buffer<char>>;
+    enum class status { initializing, connecting_to_db, bootstrapping, serving };
 
     explicit client(endpoint endpoint_);
+
+    // "enum": [
+    //       "INITIALIZING",
+    //       "CONNECTING_TO_DB",
+    //       "BOOTSTRAPPING",
+    //       "SERVING"
+    //     ],
+
+    seastar::future<status> get_status();
 
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);

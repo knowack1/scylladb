@@ -4,6 +4,7 @@
 #include <seastar/http/request.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/short_streams.hh>
+#include "utils/rjson.hh"
 
 using namespace seastar;
 
@@ -14,7 +15,52 @@ auto write_ann_json(std::vector<float> embedding, std::size_t limit) -> seastar:
     return seastar::format(R"({{"embedding":[{}],"limit":{}}})", fmt::join(embedding, ","), limit);
 }
 
+auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::status {
+    auto doc = rjson::parse(std::move(body));
+    if (!doc.HasMember("status")) {
+        throw service_reply_format_error{};
+    }
+
+    const auto& status = doc["status"];
+
+    if (!status.IsString()) {
+        throw service_reply_format_error{};
+    }
+
+    auto status_str = std::string_view(status.GetString(), status.GetStringLength());
+    if (status_str == "INITIALIZING") {
+        return client::status::initializing;
+    }
+    if (status_str == "CONNECTING_TO_DB") {
+        return client::status::connecting_to_db;
+    }
+    if (status_str == "BOOTSTRAPPING") {
+        return client::status::bootstrapping;
+    }
+    if (status_str == "SERVING") {
+        return client::status::serving;
+    }
+    throw service_reply_format_error{};
+}
+
 } // namespace
+
+seastar::future<client::status> client::get_status() {
+    auto req = http::request::make(httpd::operation_type::GET, _endpoint.host, "/api/v1/status");
+
+    auto http_status = seastar::http::reply::status_type::ok;
+    auto node_status = client::status::initializing;
+    auto handler = [&http_status, &node_status](http::reply const& reply, input_stream<char> body) -> future<> {
+        http_status = reply._status;
+        node_status = read_status_body(co_await util::read_entire_stream(body));
+    };
+
+    co_await _http_client.make_request(std::move(req), std::move(handler), std::nullopt, nullptr);
+    if (http_status != seastar::http::reply::status_type::ok) {
+        throw service_status_error(http_status);
+    }
+    co_return node_status;
+}
 
 seastar::future<client::ann_result> client::ann(
         seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as) {
@@ -35,7 +81,7 @@ seastar::future<client::ann_result> client::ann(
 
     co_await _http_client.make_request(std::move(req), std::move(handler), std::nullopt, as);
     if (status != seastar::http::reply::status_type::ok) {
-        throw vector_store_service_exception(status);
+        throw service_status_error(status);
     }
     co_return resp;
 }
