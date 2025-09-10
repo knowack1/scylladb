@@ -1243,6 +1243,7 @@ scylla_core = (['message/messaging_service.cc',
                 'service/vector_store_client.cc',
                 'service/vector_search/node.cc',
                 'service/vector_search/client.cc',
+                'service/vector_search/node_group.cc',
                 ] + [Antlr3Grammar('cql3/Cql.g')] \
                   + scylla_raft_core
                )

@@ -5,7 +5,9 @@
 
 namespace service::vector_search {
 namespace {
+
 auto constexpr NODE_CHECK_INTERVAL = std::chrono::seconds(10);
+
 }
 
 node::node(seastar::lw_shared_ptr<client> client_)
@@ -29,8 +31,8 @@ seastar::future<node::ann_result> node::ann(
 void node::start() {
     (void)seastar::with_gate(_tasks_gate, [this] {
         return seastar::repeat([this] -> seastar::future<seastar::stop_iteration> {
-            co_await seastar::sleep(NODE_CHECK_INTERVAL);
             co_await handle_tick();
+            co_await seastar::sleep(NODE_CHECK_INTERVAL);
             co_return seastar::stop_iteration::no;
         });
     });
@@ -38,8 +40,8 @@ void node::start() {
 
 seastar::future<> node::handle_tick() {
     if (_is_up) {
-        auto status = co_await _client->get_status();
-        _is_up = (status == client::status::serving);
+        auto status = co_await _client->status();
+        _is_up = (status == client::node_status::serving);
     }
 }
 

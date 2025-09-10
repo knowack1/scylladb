@@ -4,6 +4,7 @@
 #include <seastar/http/request.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/short_streams.hh>
+#include <seastar/net/socket_defs.hh>
 #include "utils/rjson.hh"
 
 using namespace seastar;
@@ -15,7 +16,7 @@ auto write_ann_json(std::vector<float> embedding, std::size_t limit) -> seastar:
     return seastar::format(R"({{"embedding":[{}],"limit":{}}})", fmt::join(embedding, ","), limit);
 }
 
-auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::status {
+auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::node_status {
     auto doc = rjson::parse(std::move(body));
     if (!doc.HasMember("status")) {
         throw service_reply_format_error{};
@@ -29,16 +30,16 @@ auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::statu
 
     auto status_str = std::string_view(status.GetString(), status.GetStringLength());
     if (status_str == "INITIALIZING") {
-        return client::status::initializing;
+        return client::node_status::initializing;
     }
     if (status_str == "CONNECTING_TO_DB") {
-        return client::status::connecting_to_db;
+        return client::node_status::connecting_to_db;
     }
     if (status_str == "BOOTSTRAPPING") {
-        return client::status::bootstrapping;
+        return client::node_status::bootstrapping;
     }
     if (status_str == "SERVING") {
-        return client::status::serving;
+        return client::node_status::serving;
     }
     throw service_reply_format_error{};
 }
@@ -46,7 +47,12 @@ auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::statu
 
 } // namespace
 
-seastar::future<client::status> client::get_status() {
+client::client(::service::vector_search::endpoint endpoint_)
+    : _endpoint(std::move(endpoint_))
+    , _http_client(seastar::socket_address(_endpoint.ip, _endpoint.port)) {
+}
+
+seastar::future<client::node_status> client::status() {
     auto req = http::request::make(httpd::operation_type::GET, _endpoint.host, "/api/v1/status");
     auto body = co_await request(std::move(req));
     co_return read_status_body(std::move(body));

@@ -13,7 +13,7 @@ class client {
 
 public:
     using ann_result = std::vector<seastar::temporary_buffer<char>>;
-    enum class status { initializing, connecting_to_db, bootstrapping, serving };
+    enum class node_status { initializing, connecting_to_db, bootstrapping, serving };
 
     explicit client(endpoint endpoint_);
 
@@ -22,7 +22,11 @@ public:
     client(client&&) = delete;
     client& operator=(client&&) = delete;
 
-    seastar::future<status> get_status();
+    const endpoint& endpoint() const {
+        return _endpoint;
+    }
+
+    seastar::future<node_status> status();
 
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
@@ -30,7 +34,7 @@ public:
 private:
     seastar::future<std::vector<seastar::temporary_buffer<char>>> request(seastar::http::request req);
 
-    endpoint _endpoint;
+    ::service::vector_search::endpoint _endpoint;
     seastar::http::experimental::client _http_client;
 };
 

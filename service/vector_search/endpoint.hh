@@ -2,12 +2,13 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/net/inet_address.hh>
+#include <cstdint>
 
 namespace service::vector_search {
 
 struct endpoint {
     seastar::sstring host;
-    seastar::sstring port;
+    std::uint16_t port;
     seastar::net::inet_address ip;
 };
 
