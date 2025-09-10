@@ -29,7 +29,11 @@ public:
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
-    void start();
+    seastar::future<> start();
+
+    seastar::future<> discover();
+
+    std::vector<seastar::lw_shared_ptr<node>> nodes() const;
 
 private:
     seastar::future<> handle_tick();

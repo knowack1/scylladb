@@ -83,4 +83,19 @@ void node_group::add_new_nodes(const std::unordered_set<seastar::net::inet_addre
     }
 }
 
+seastar::future<> node_group::discover() {
+    auto addrs = co_await _resolver(_host);
+    handle_new_addresses(addrs);
+}
+
+std::vector<seastar::lw_shared_ptr<node>> node_group::nodes() const {
+    std::vector<seastar::lw_shared_ptr<node>> up_nodes;
+    for (const auto& n : _nodes) {
+        if (n->is_up()) {
+            up_nodes.push_back(n);
+        }
+    }
+    return up_nodes;
+}
+
 } // namespace service::vector_search
