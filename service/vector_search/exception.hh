@@ -26,7 +26,7 @@ private:
 class service_reply_format_error : public std::runtime_error {
 public:
     explicit service_reply_format_error()
-        : std::runtime_error("Vector Store error: invalid reply format") {
+        : std::runtime_error("Vector Store returned an invalid JSON") {
     }
 
 
@@ -37,6 +37,13 @@ public:
 
 private:
     seastar::http::reply::status_type _status;
+};
+
+class service_unavailable_error : public std::runtime_error {
+public:
+    explicit service_unavailable_error()
+        : std::runtime_error("Vector Store service is unavailable") {
+    }
 };
 
 

@@ -1,9 +1,7 @@
-#include "node_group.h"
+#include "node_group.hh"
 #include <seastar/core/sleep.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <unordered_set>
-// #include <seastar/core/shared_ptr.hh>
-// #include <seastar/core/gate.hh>
 
 namespace service::vector_search {
 namespace {
@@ -21,16 +19,6 @@ bool has_down(const std::vector<seastar::lw_shared_ptr<node>>& nodes) {
 
 } // namespace
 
-
-// seastar::future<high_availability::ann_result> high_availability::ann(
-//         seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as) {
-//     auto f = co_await seastar::coroutine::as_future(_client->ann(std::move(keyspace), std::move(name), std::move(embedding), limit, as));
-//     if (f.failed()) {
-//         _is_up = false;
-//         co_await seastar::coroutine::return_exception_ptr(f.get_exception());
-//     }
-//     co_return f.get();
-// }
 
 node_group::node_group(seastar::sstring host, unsigned port, dns_resolver resolver_)
     : _host(std::move(host))
@@ -88,7 +76,7 @@ seastar::future<> node_group::discover() {
     handle_new_addresses(addrs);
 }
 
-std::vector<seastar::lw_shared_ptr<node>> node_group::nodes() const {
+std::vector<seastar::lw_shared_ptr<node>> node_group::available_nodes() const {
     std::vector<seastar::lw_shared_ptr<node>> up_nodes;
     for (const auto& n : _nodes) {
         if (n->is_up()) {

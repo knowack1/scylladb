@@ -7,7 +7,6 @@
 #include <vector>
 #include <functional>
 #include <unordered_set>
-// #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/gate.hh>
 
 namespace service::vector_search {
@@ -29,11 +28,11 @@ public:
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
-    seastar::future<> start();
+    void start();
 
     seastar::future<> discover();
 
-    std::vector<seastar::lw_shared_ptr<node>> nodes() const;
+    std::vector<seastar::lw_shared_ptr<node>> available_nodes() const;
 
 private:
     seastar::future<> handle_tick();
