@@ -7,6 +7,7 @@
  */
 
 #include "vector_store_client.hh"
+#include "vector_search/high_availability.hh"
 #include "cql3/statements/select_statement.hh"
 #include "cql3/type_json.hh"
 #include "db/config.hh"
@@ -79,10 +80,7 @@ auto parse_port(std::string const& port_txt) -> std::optional<port_number> {
     return port;
 }
 
-struct host_port {
-    host_name host;
-    port_number port;
-};
+using host_port = service::vector_search::high_availability::uri;
 
 auto parse_service_uri(std::string_view uri) -> std::optional<host_port> {
     constexpr auto URI_REGEX = R"(^http:\/\/([a-z0-9._-]+):([0-9]+)$)";
@@ -176,9 +174,9 @@ auto ck_from_json(rjson::value const& item, std::size_t idx, schema_ptr const& s
     return clustering_key_prefix::from_exploded(raw_ck);
 }
 
-auto write_ann_json(embedding embedding, limit limit) -> json_content {
-    return seastar::format(R"({{"embedding":[{}],"limit":{}}})", fmt::join(embedding, ","), limit);
-}
+// auto write_ann_json(embedding embedding, limit limit) -> json_content {
+//     return seastar::format(R"({{"embedding":[{}],"limit":{}}})", fmt::join(embedding, ","), limit);
+// }
 
 auto read_ann_json(rjson::value const& json, schema_ptr const& schema) -> std::expected<primary_keys, ann_error> {
     if (!json.HasMember("primary_keys")) {
@@ -271,12 +269,22 @@ auto get_host_port(std::string_view uri) -> std::optional<host_port> {
     return *parsed;
 }
 
-sstring response_content_to_sstring(const std::vector<temporary_buffer<char>>& buffers) {
-    sstring result;
-    for (const auto& buf : buffers) {
-        result.append(buf.get(), buf.size());
-    }
-    return result;
+// sstring response_content_to_sstring(const std::vector<temporary_buffer<char>>& buffers) {
+//     sstring result;
+//     for (const auto& buf : buffers) {
+//         result.append(buf.get(), buf.size());
+//     }
+//     return result;
+// }
+
+service::vector_search::node_group::dns_resolver make_resolver_adapter(std::function<future<std::optional<inet_address>>(sstring const&)> resolver) {
+    return [resolver = std::move(resolver)](sstring const& host) -> future<std::unordered_set<inet_address>> {
+        auto addr = co_await resolver(host);
+        if (!addr) {
+            co_return std::unordered_set<inet_address>{};
+        }
+        co_return std::unordered_set<inet_address>{*addr};
+    };
 }
 
 } // namespace
@@ -300,12 +308,18 @@ struct vector_store_client::impl {
     std::function<future<std::optional<inet_address>>(sstring const&)> dns_resolver;
     sequential_producer<lw_shared_ptr<http_client>> client_producer;
     std::function<void()> _dns_observer; ///< The DNS observer for metrics collection.
+    vector_search::high_availability ha;
 
     impl(utils::config_file::named_value<sstring> cfg)
-        : uri_observer(cfg.observe([this](std::string_view uri) {
+        : uri_observer(cfg.observe([this](std::string_view uri) -> future<> {
             try {
                 _host_port = get_host_port(uri);
                 trigger_dns_refresh();
+                // if(_host_port) {
+
+                // }
+                co_await ha.uris(
+                        _host_port ? std::vector<vector_search::high_availability::uri>{*_host_port} : std::vector<vector_search::high_availability::uri>{});
             } catch (const configuration_exception& e) {
                 vslogger.error("Failed to parse Vector Store service URI: {}", e.what());
                 _host_port = std::nullopt;
@@ -331,7 +345,10 @@ struct vector_store_client::impl {
             trigger_dns_refresh();
             co_await wait_for_signal(refresh_client_cv, lowres_clock::now() + wait_for_client_timeout);
             co_return current_client;
-        }) {
+        })
+        , ha(make_resolver_adapter(dns_resolver)) {
+
+        auto f = ha.uris(_host_port ? std::vector<vector_search::high_availability::uri>{*_host_port} : std::vector<vector_search::high_availability::uri>{});
     }
 
     auto is_disabled() const -> bool {
@@ -540,27 +557,32 @@ struct vector_store_client::impl {
             co_return std::unexpected{disabled{}};
         }
 
-        auto path = format("/api/v1/indexes/{}/{}/ann", keyspace, name);
-        auto content = write_ann_json(std::move(embedding), limit);
+        // auto path = format("/api/v1/indexes/{}/{}/ann", keyspace, name);
+        // auto content = write_ann_json(std::move(embedding), limit);
 
-        auto resp = co_await make_request(operation_type::POST, std::move(path), std::move(content), as);
-        if (!resp) {
-            co_return std::unexpected{std::visit(
-                    [](auto&& err) {
-                        return ann_error{err};
-                    },
-                    resp.error())};
-        }
+        // try {
+        auto content = co_await ha.ann(std::move(keyspace), std::move(name), std::move(embedding), limit, &as);
+        // }
 
-        if (resp->status != status_type::ok) {
-            vslogger.error("Vector Store returned error: HTTP status {}: {}", resp->status, seastar::value_of([&resp] {
-                return response_content_to_sstring(resp->content);
-            }));
-            co_return std::unexpected{service_error{resp->status}};
-        }
+
+        // auto resp = co_await make_request(operation_type::POST, std::move(path), std::move(content), as);
+        // if (!resp) {
+        //     co_return std::unexpected{std::visit(
+        //             [](auto&& err) {
+        //                 return ann_error{err};
+        //             },
+        //             resp.error())};
+        // }
+
+        // if (resp->status != status_type::ok) {
+        //     vslogger.error("Vector Store returned error: HTTP status {}: {}", resp->status, seastar::value_of([&resp] {
+        //         return response_content_to_sstring(resp->content);
+        //     }));
+        //     co_return std::unexpected{service_error{resp->status}};
+        // }
 
         try {
-            auto response = read_ann_json(rjson::parse(std::move(resp->content)), schema);
+            auto response = read_ann_json(rjson::parse(std::move(content)), schema);
             co_return response;
         } catch (const rjson::error& e) {
             vslogger.error("Vector Store returned invalid JSON: {}", e.what());
@@ -683,7 +705,6 @@ class vector_store_client::metrics : public service::migration_listener {
     virtual void on_drop_view(const sstring& ks_name, const sstring& view_name) override {};
 
 public:
-
     metrics(migration_notifier& notifier, lw_shared_ptr<impl> _impl, replica::database const& db)
         : _notifier(notifier)
         , _impl(_impl)

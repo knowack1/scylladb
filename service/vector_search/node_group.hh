@@ -28,7 +28,7 @@ public:
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
-    void start();
+    // void start();
 
     seastar::future<> discover();
 

@@ -18,6 +18,14 @@ constexpr auto HTTP_REQUEST_RETRIES = 3;
 //     return result;
 // }
 
+std::vector<seastar::lw_shared_ptr<node_group>> make_groups(const std::vector<high_availability::uri>& uris, node_group::dns_resolver resolver) {
+    std::vector<seastar::lw_shared_ptr<node_group>> result;
+    for (const auto& u : uris) {
+        result.push_back(seastar::make_lw_shared<node_group>(u.host, u.port, resolver));
+    }
+    return result;
+}
+
 } // namespace
 
 // high_availability::high_availability()
@@ -29,10 +37,9 @@ constexpr auto HTTP_REQUEST_RETRIES = 3;
 
 seastar::future<client::ann_result> high_availability::ann(
         seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as) {
+    // throw when uris is empty - vector store disabled
     auto nodes = available_nodes();
-    // if (nodes.empty()) {
-    //     nodes = co_await discover_nodes_in_all_groups();
-    // }
+
     for (size_t i = 0; i < HTTP_REQUEST_RETRIES; i++) {
         for (const auto& node : nodes) {
             try {
@@ -48,10 +55,7 @@ seastar::future<client::ann_result> high_availability::ann(
 }
 
 seastar::future<> high_availability::uris(std::vector<uri> uris) {
-    _groups.clear();
-    for (const auto& u : uris) {
-        _groups.push_back(seastar::make_lw_shared<node_group>(u.host, u.port, _resolver));
-    }
+    _groups = make_groups(uris, _resolver);
     co_await discover_nodes_in_all_groups();
 }
 
