@@ -58,7 +58,7 @@ using service_reply_format_error = service::vector_store_client::service_reply_f
 using time_point = lowres_clock::time_point;
 
 // Wait time before retrying after an exception occurred
-constexpr auto EXCEPTION_OCCURED_WAIT = std::chrono::seconds(5);
+// constexpr auto EXCEPTION_OCCURED_WAIT = std::chrono::seconds(5);
 
 // Minimum interval between dns name refreshes
 constexpr auto DNS_REFRESH_INTERVAL = std::chrono::seconds(5);
@@ -100,18 +100,18 @@ auto parse_service_uri(std::string_view uri) -> std::optional<host_port> {
     return {{host, *port}};
 }
 
-/// Wait for a timeout ar abort signal.
-auto wait_for_timeout(duration timeout, abort_source& as) -> future<bool> {
-    auto result = co_await coroutine::as_future(sleep_abortable(timeout, as));
-    if (result.failed()) {
-        auto err = result.get_exception();
-        if (as.abort_requested()) {
-            co_return false;
-        }
-        co_await coroutine::return_exception_ptr(std::move(err));
-    }
-    co_return true;
-}
+// /// Wait for a timeout ar abort signal.
+// auto wait_for_timeout(duration timeout, abort_source& as) -> future<bool> {
+//     auto result = co_await coroutine::as_future(sleep_abortable(timeout, as));
+//     if (result.failed()) {
+//         auto err = result.get_exception();
+//         if (as.abort_requested()) {
+//             co_return false;
+//         }
+//         co_await coroutine::return_exception_ptr(std::move(err));
+//     }
+//     co_return true;
+// }
 
 /// Wait for a condition variable to be signaled or timeout.
 auto wait_for_signal(condition_variable& cv, time_point timeout) -> future<bool> {
@@ -332,7 +332,7 @@ struct vector_store_client::impl {
     }
 
     // auto is_disabled() const -> bool {
-    //     return !bool{_host_port};
+    //     return ha.is_disabled();
     // }
 
     // auto host() const -> std::expected<host_name, disabled> {
@@ -375,55 +375,55 @@ struct vector_store_client::impl {
     // }
 
     /// A task for refreshing the vector store http client.
-    auto refresh_addr_task() -> future<> {
-        for (;;) {
-            auto exception_occured = false;
-            try {
-                if (abort_refresh.abort_requested()) {
-                    break;
-                }
+    // auto refresh_addr_task() -> future<> {
+    //     for (;;) {
+    //         auto exception_occured = false;
+    //         try {
+    //             if (abort_refresh.abort_requested()) {
+    //                 break;
+    //             }
 
-                // Do not refresh the service address too often
-                auto now = lowres_clock::now();
-                auto current_duration = now - last_dns_refresh;
-                if (current_duration > dns_refresh_interval) {
-                    last_dns_refresh = now;
-                    co_await refresh_addr();
-                } else {
-                    // Wait till the end of the refreshing interval
-                    if (co_await wait_for_timeout(dns_refresh_interval - current_duration, abort_refresh)) {
-                        continue;
-                    }
-                    // If the wait was aborted, we stop refreshing
-                    break;
-                }
+    //             // Do not refresh the service address too often
+    //             auto now = lowres_clock::now();
+    //             auto current_duration = now - last_dns_refresh;
+    //             if (current_duration > dns_refresh_interval) {
+    //                 last_dns_refresh = now;
+    //                 co_await refresh_addr();
+    //             } else {
+    //                 // Wait till the end of the refreshing interval
+    //                 if (co_await wait_for_timeout(dns_refresh_interval - current_duration, abort_refresh)) {
+    //                     continue;
+    //                 }
+    //                 // If the wait was aborted, we stop refreshing
+    //                 break;
+    //             }
 
-                if (abort_refresh.abort_requested()) {
-                    break;
-                }
+    //             if (abort_refresh.abort_requested()) {
+    //                 break;
+    //             }
 
-                // new client is available
-                refresh_client_cv.broadcast();
+    //             // new client is available
+    //             refresh_client_cv.broadcast();
 
-                co_await cleanup_old_clients();
+    //             co_await cleanup_old_clients();
 
-                co_await refresh_cv.when();
-            } catch (const std::exception& e) {
-                vslogger.error("Vector Store Client refresh task failed: {}", e.what());
-                exception_occured = true;
-            } catch (...) {
-                vslogger.error("Vector Store Client refresh task failed with unknown exception");
-                exception_occured = true;
-            }
-            if (exception_occured) {
-                // If an exception occurred, we wait for the next signal to refresh the address
-                co_await wait_for_timeout(EXCEPTION_OCCURED_WAIT, abort_refresh);
-            }
-        }
+    //             co_await refresh_cv.when();
+    //         } catch (const std::exception& e) {
+    //             vslogger.error("Vector Store Client refresh task failed: {}", e.what());
+    //             exception_occured = true;
+    //         } catch (...) {
+    //             vslogger.error("Vector Store Client refresh task failed with unknown exception");
+    //             exception_occured = true;
+    //         }
+    //         if (exception_occured) {
+    //             // If an exception occurred, we wait for the next signal to refresh the address
+    //             co_await wait_for_timeout(EXCEPTION_OCCURED_WAIT, abort_refresh);
+    //         }
+    //     }
 
-        co_await cleanup_old_clients();
-        co_await cleanup_current_client();
-    }
+    //     co_await cleanup_old_clients();
+    //     co_await cleanup_current_client();
+    // }
 
     /// Request a DNS refresh in the specific task.
     // void trigger_dns_refresh() {
@@ -490,52 +490,52 @@ struct vector_store_client::impl {
 
     using make_request_error = std::variant<aborted, addr_unavailable, service_unavailable, disabled>;
 
-    auto make_request(operation_type method, http_path path, std::optional<json_content> content, abort_source& as)
-            -> future<std::expected<make_request_response, make_request_error>> {
-        auto resp = make_request_response{.status = http::reply::status_type::ok, .content = std::vector<temporary_buffer<char>>()};
+    // auto make_request(operation_type method, http_path path, std::optional<json_content> content, abort_source& as)
+    //         -> future<std::expected<make_request_response, make_request_error>> {
+    //     auto resp = make_request_response{.status = http::reply::status_type::ok, .content = std::vector<temporary_buffer<char>>()};
 
-        for (auto retries = 0; retries < HTTP_REQUEST_RETRIES; ++retries) {
-            auto client = co_await get_client(as);
-            if (!client) {
-                co_return std::unexpected{std::visit(
-                        [](auto&& err) {
-                            return make_request_error{err};
-                        },
-                        client.error())};
-            }
+    //     for (auto retries = 0; retries < HTTP_REQUEST_RETRIES; ++retries) {
+    //         auto client = co_await get_client(as);
+    //         if (!client) {
+    //             co_return std::unexpected{std::visit(
+    //                     [](auto&& err) {
+    //                         return make_request_error{err};
+    //                     },
+    //                     client.error())};
+    //         }
 
-            auto result = co_await coroutine::as_future(client.value()->make_request(
-                    method, std::move(path), std::move(content),
-                    [&resp](http::reply const& reply, input_stream<char> body) -> future<> {
-                        resp.status = reply._status;
-                        resp.content = co_await util::read_entire_stream(body);
-                    },
-                    &as));
-            if (result.failed()) {
-                auto err = result.get_exception();
-                if (as.abort_requested()) {
-                    co_return std::unexpected{aborted{}};
-                }
-                if (try_catch<std::system_error>(err) == nullptr) {
-                    co_await coroutine::return_exception_ptr(std::move(err));
-                }
-                // std::system_error means that the server is unavailable, so we retry
-            } else {
-                co_return resp;
-            }
+    //         auto result = co_await coroutine::as_future(client.value()->make_request(
+    //                 method, std::move(path), std::move(content),
+    //                 [&resp](http::reply const& reply, input_stream<char> body) -> future<> {
+    //                     resp.status = reply._status;
+    //                     resp.content = co_await util::read_entire_stream(body);
+    //                 },
+    //                 &as));
+    //         if (result.failed()) {
+    //             auto err = result.get_exception();
+    //             if (as.abort_requested()) {
+    //                 co_return std::unexpected{aborted{}};
+    //             }
+    //             if (try_catch<std::system_error>(err) == nullptr) {
+    //                 co_await coroutine::return_exception_ptr(std::move(err));
+    //             }
+    //             // std::system_error means that the server is unavailable, so we retry
+    //         } else {
+    //             co_return resp;
+    //         }
 
-            trigger_dns_refresh();
-        }
+    //         // trigger_dns_refresh();
+    //     }
 
-        co_return std::unexpected{service_unavailable{}};
-    }
+    //     co_return std::unexpected{service_unavailable{}};
+    // }
 
     auto ann(keyspace_name keyspace, index_name name, schema_ptr schema, embedding embedding, limit limit, abort_source& as)
             -> future<std::expected<primary_keys, ann_error>> {
-        if (is_disabled()) {
-            vslogger.error("Disabled Vector Store while calling ann");
-            co_return std::unexpected{disabled{}};
-        }
+        // if (is_disabled()) {
+        //     vslogger.error("Disabled Vector Store while calling ann");
+        //     co_return std::unexpected{disabled{}};
+        // }
 
         // auto path = format("/api/v1/indexes/{}/{}/ann", keyspace, name);
         // auto content = write_ann_json(std::move(embedding), limit);
@@ -738,11 +738,11 @@ vector_store_client::~vector_store_client() = default;
 
 void vector_store_client::start_background_tasks() {
     /// start the background task to refresh the service address
-    (void)try_with_gate(_impl->tasks_gate, [this] {
-        return _impl->refresh_addr_task();
-    }).handle_exception([](std::exception_ptr eptr) {
-        on_internal_error_noexcept(vslogger, format("The Vector Store Client refresh task failed: {}", eptr));
-    });
+    // (void)try_with_gate(_impl->tasks_gate, [this] {
+    //     return _impl->refresh_addr_task();
+    // }).handle_exception([](std::exception_ptr eptr) {
+    //     on_internal_error_noexcept(vslogger, format("The Vector Store Client refresh task failed: {}", eptr));
+    // });
 }
 
 auto vector_store_client::stop() -> future<> {
@@ -752,17 +752,17 @@ auto vector_store_client::stop() -> future<> {
     co_await _metrics->stop();
 }
 
-auto vector_store_client::is_disabled() const -> bool {
-    return _impl->is_disabled();
-}
+// auto vector_store_client::is_disabled() const -> bool {
+//     return _impl->is_disabled();
+// }
 
-auto vector_store_client::host() const -> std::expected<host_name, disabled> {
-    return _impl->host();
-}
+// auto vector_store_client::host() const -> std::expected<host_name, disabled> {
+//     return _impl->host();
+// }
 
-auto vector_store_client::port() const -> std::expected<port_number, disabled> {
-    return _impl->port();
-}
+// auto vector_store_client::port() const -> std::expected<port_number, disabled> {
+//     return _impl->port();
+// }
 
 auto vector_store_client::ann(keyspace_name keyspace, index_name name, schema_ptr schema, embedding embedding, limit limit, abort_source& as)
         -> future<std::expected<primary_keys, ann_error>> {
@@ -785,16 +785,16 @@ void vector_store_client_tester::set_dns_resolver(vector_store_client& vsc, std:
     vsc._impl->dns_resolver = std::move(resolver);
 }
 
-void vector_store_client_tester::trigger_dns_resolver(vector_store_client& vsc) {
-    vsc._impl->trigger_dns_refresh();
-}
+// void vector_store_client_tester::trigger_dns_resolver(vector_store_client& vsc) {
+//     vsc._impl->trigger_dns_refresh();
+// }
 
-auto vector_store_client_tester::resolve_hostname(vector_store_client& vsc, abort_source& as) -> future<std::optional<inet_address>> {
-    auto client = co_await vsc._impl->get_client(as);
-    if (!client) {
-        co_return std::nullopt;
-    }
-    co_return client.value()->addr();
-}
+// auto vector_store_client_tester::resolve_hostname(vector_store_client& vsc, abort_source& as) -> future<std::optional<inet_address>> {
+//     auto client = co_await vsc._impl->get_client(as);
+//     if (!client) {
+//         co_return std::nullopt;
+//     }
+//     co_return client.value()->addr();
+// }
 
 } // namespace service

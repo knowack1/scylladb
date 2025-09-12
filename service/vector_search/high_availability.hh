@@ -27,6 +27,10 @@ public:
 
     seastar::future<> set_uri(std::optional<uri> uri);
 
+    // bool is_disabled() const {
+    //     return !_uri.has_value();
+    // }
+
 private:
     using nodes = std::vector<seastar::lw_shared_ptr<node>>;
 
