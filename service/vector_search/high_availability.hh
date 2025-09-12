@@ -1,6 +1,7 @@
 #pragma once
 
 #include "client.hh"
+#include "dns.hh"
 #include "seastar/core/future.hh"
 #include <seastar/core/sstring.hh>
 #include <vector>
@@ -19,7 +20,7 @@ public:
     using dns_resolver = std::function<seastar::future<std::optional<seastar::net::inet_address>>(seastar::sstring const&)>;
 
     explicit high_availability(dns_resolver resolver)
-        : _resolver(std::move(resolver)) {
+        : _dns(std::move(resolver)) {
     }
 
     seastar::future<client::ann_result> ann(
@@ -28,19 +29,22 @@ public:
     seastar::future<> set_uri(std::optional<uri> uri);
 
     void set_resolver(dns_resolver resolver) {
-        _resolver = std::move(resolver);
+        _dns.set_resolver(resolver);
+    }
+
+    void set_dns_refresh_interval(std::chrono::milliseconds interval) {
+        _dns.set_refresh_interval(interval);
     }
 
     seastar::future<> stop();
 
-
 private:
-    seastar::future<> refresh_client_address();
-    seastar::future<seastar::lw_shared_ptr<client>> get_client();
+    seastar::future<> refresh_client_address(seastar::abort_source* as);
+    seastar::future<seastar::lw_shared_ptr<client>> get_client(seastar::abort_source* as);
 
     std::optional<uri> _uri;
     seastar::lw_shared_ptr<client> _client;
-    dns_resolver _resolver;
+    dns _dns;
 };
 
 

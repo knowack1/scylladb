@@ -31,7 +31,7 @@ seastar::future<client::ann_result> high_availability::ann(
 
 
     for (size_t i = 0; i < HTTP_REQUEST_RETRIES; i++) {
-        auto client = co_await get_client();
+        auto client = co_await get_client(as);
         try {
             co_return co_await client->ann(std::move(keyspace), std::move(name), std::move(embedding), limit, as);
         } catch (const abort_requested_exception& e) {
@@ -56,20 +56,20 @@ seastar::future<client::ann_result> high_availability::ann(
             // throw service_unavailable_exception{};
         }
         // Refresh client address and retry
-        co_await refresh_client_address();
-        client = co_await get_client();
+        co_await refresh_client_address(as);
+        client = co_await get_client(as);
     }
     throw service_unavailable_exception();
 }
 
 seastar::future<> high_availability::set_uri(std::optional<uri> uri) {
     _uri = std::move(uri);
-    co_await refresh_client_address();
+    co_await refresh_client_address(nullptr);
 }
 
-seastar::future<> high_availability::refresh_client_address() {
+seastar::future<> high_availability::refresh_client_address(seastar::abort_source* as) {
     if (_uri) {
-        auto addr = co_await _resolver(_uri->host);
+        auto addr = co_await _dns.resolve(_uri->host);
         if (addr) {
             co_await stop();
             _client = seastar::make_lw_shared<client>(endpoint{_uri->host, _uri->port, *addr});
@@ -77,13 +77,17 @@ seastar::future<> high_availability::refresh_client_address() {
         }
     }
     _client = nullptr;
+    if (as && as->abort_requested()) {
+
+        throw abort_requested_exception{};
+    }
 }
 
-seastar::future<seastar::lw_shared_ptr<client>> high_availability::get_client() {
+seastar::future<seastar::lw_shared_ptr<client>> high_availability::get_client(seastar::abort_source* as) {
     if (_client) {
         co_return _client;
     }
-    co_await refresh_client_address();
+    co_await refresh_client_address(as);
     if (!_client) {
         throw service_address_unavailable_exception{};
     }

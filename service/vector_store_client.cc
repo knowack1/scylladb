@@ -763,7 +763,7 @@ auto vector_store_client::ann(keyspace_name keyspace, index_name name, schema_pt
 }
 
 void vector_store_client_tester::set_dns_refresh_interval(vector_store_client& vsc, std::chrono::milliseconds interval) {
-    vsc._impl->dns_refresh_interval = interval;
+    vsc._impl->ha.set_dns_refresh_interval(interval);
 }
 
 void vector_store_client_tester::set_wait_for_client_timeout(vector_store_client& vsc, std::chrono::milliseconds timeout) {
