@@ -16,34 +16,6 @@ auto write_ann_json(std::vector<float> embedding, std::size_t limit) -> seastar:
     return seastar::format(R"({{"embedding":[{}],"limit":{}}})", fmt::join(embedding, ","), limit);
 }
 
-auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::node_status {
-    auto doc = rjson::parse(std::move(body));
-    if (!doc.HasMember("status")) {
-        throw service_reply_format_exception{};
-    }
-
-    const auto& status = doc["status"];
-
-    if (!status.IsString()) {
-        throw service_reply_format_exception{};
-    }
-
-    auto status_str = std::string_view(status.GetString(), status.GetStringLength());
-    if (status_str == "INITIALIZING") {
-        return client::node_status::initializing;
-    }
-    if (status_str == "CONNECTING_TO_DB") {
-        return client::node_status::connecting_to_db;
-    }
-    if (status_str == "BOOTSTRAPPING") {
-        return client::node_status::bootstrapping;
-    }
-    if (status_str == "SERVING") {
-        return client::node_status::serving;
-    }
-    throw service_reply_format_exception{};
-}
-
 sstring to_string(const std::vector<temporary_buffer<char>>& buffers) {
     sstring result;
     for (const auto& buf : buffers) {
@@ -57,13 +29,6 @@ sstring to_string(const std::vector<temporary_buffer<char>>& buffers) {
 client::client(::service::vector_search::endpoint endpoint_)
     : _endpoint(std::move(endpoint_))
     , _http_client(seastar::socket_address(_endpoint.ip, _endpoint.port)) {
-}
-
-seastar::future<client::node_status> client::status() {
-    auto req = http::request::make(httpd::operation_type::GET, _endpoint.host, "/api/v1/status");
-    auto as = abort_source();
-    auto body = co_await request(std::move(req), &as);
-    co_return read_status_body(std::move(body));
 }
 
 seastar::future<client::ann_result> client::ann(

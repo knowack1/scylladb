@@ -729,9 +729,13 @@ vector_store_client::vector_store_client(config const& cfg, migration_notifier& 
 vector_store_client::~vector_store_client() = default;
 
 void vector_store_client::start_background_tasks() {
-
-    auto f = _impl->ha.set_uri(_impl->_uri);
+    auto f = start();
 }
+
+auto vector_store_client::start() -> future<> {
+    co_await _impl->ha.set_uri(_impl->_uri);
+}
+
 
 auto vector_store_client::stop() -> future<> {
     _impl->abort_refresh.request_abort();

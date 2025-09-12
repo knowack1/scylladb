@@ -103,6 +103,9 @@ public:
     /// Start background tasks.
     void start_background_tasks();
 
+    /// Start.
+    auto start() -> future<>;
+
     /// Stop the service.
     auto stop() -> future<>;
 

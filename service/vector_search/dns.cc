@@ -1,8 +1,6 @@
 #include "dns.hh"
 #include <seastar/core/coroutine.hh>
 
-#include <iostream>
-
 namespace service::vector_search {
 
 dns::dns(dns_resolver resolver)
@@ -12,7 +10,7 @@ dns::dns(dns_resolver resolver)
 seastar::future<std::optional<seastar::net::inet_address>> dns::resolve(seastar::sstring host) {
     auto now = seastar::lowres_clock::now();
     auto current_duration = now - _last_refresh;
-    if (current_duration > _refresh_interval) {
+    if (current_duration >= _refresh_interval) {
         _last_refresh = now;
         _addr = co_await _resolver(host);
     }

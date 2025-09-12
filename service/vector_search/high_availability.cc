@@ -2,8 +2,6 @@
 #include "exception.hh"
 #include "seastar/core/abort_source.hh"
 #include <boost/algorithm/string.hpp>
-// #include <exception>
-#include <exception>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/loop.hh>
 
@@ -35,25 +33,15 @@ seastar::future<client::ann_result> high_availability::ann(
         try {
             co_return co_await client->ann(std::move(keyspace), std::move(name), std::move(embedding), limit, as);
         } catch (const abort_requested_exception& e) {
-            std::cout << "KAROL: Caught abort_requested_exception" << std::endl;
-
             // Stop retrying if the request was aborted
             throw;
         } catch (const service_status_exception& e) {
-            std::cout << "KAROL: Caught service_status_exception with status " << int(e.status()) << std::endl;
             // Stop retrying if the error is not a server error
             // This means that client performed a bad request
             if (!is_server_error(e.status())) {
                 throw;
             }
-        } catch (std::exception& e) {
-            std::cout << "KAROL: Caught std::exception: " << e.what() << std::endl;
-            // Stop retrying on unknown exceptions
-            // throw service_unavailable_exception{};
         } catch (...) {
-            std::cout << "KAROL: Caught unknown exception" << std::endl;
-            // Stop retrying on unknown exceptions
-            // throw service_unavailable_exception{};
         }
         // Refresh client address and retry
         co_await refresh_client_address(as);
