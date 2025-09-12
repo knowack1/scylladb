@@ -293,18 +293,18 @@ struct vector_store_client::impl {
     sequential_producer<lw_shared_ptr<http_client>> client_producer;
     std::function<void()> _dns_observer; ///< The DNS observer for metrics collection.
     vector_search::high_availability ha;
+    std::optional<host_port> _uri;
 
-    impl(utils::config_file::named_value<sstring> cfg)
-        : uri_observer(cfg.observe([this](std::string_view uri) -> future<> {
+    impl(utils::config_file::named_value<sstring> cfg_)
+        : uri_observer(cfg_.observe([this](std::string_view uri) -> future<> {
             try {
-                // _host_port = get_host_port(uri);
-                // trigger_dns_refresh();
-                co_await ha.set_uri(get_host_port(uri));
+                _uri = get_host_port(uri);
+
             } catch (const configuration_exception& e) {
                 vslogger.error("Failed to parse Vector Store service URI: {}", e.what());
-                auto f = ha.set_uri(std::nullopt);
-                // _host_port = std::nullopt;
+                _uri = std::nullopt;
             }
+            co_await ha.set_uri(_uri);
         }))
         // , _host_port(get_host_port(cfg()))
         , dns_resolver([this](auto const& host) -> future<std::optional<inet_address>> {
@@ -327,9 +327,8 @@ struct vector_store_client::impl {
             co_await wait_for_signal(refresh_client_cv, lowres_clock::now() + wait_for_client_timeout);
             co_return current_client;
         })
-        , ha(dns_resolver) {
-
-        auto f = ha.set_uri(get_host_port(cfg()));
+        , ha(dns_resolver)
+        , _uri(get_host_port(cfg_())) {
     }
 
     // auto is_disabled() const -> bool {
@@ -730,12 +729,8 @@ vector_store_client::vector_store_client(config const& cfg, migration_notifier& 
 vector_store_client::~vector_store_client() = default;
 
 void vector_store_client::start_background_tasks() {
-    /// start the background task to refresh the service address
-    // (void)try_with_gate(_impl->tasks_gate, [this] {
-    //     return _impl->refresh_addr_task();
-    // }).handle_exception([](std::exception_ptr eptr) {
-    //     on_internal_error_noexcept(vslogger, format("The Vector Store Client refresh task failed: {}", eptr));
-    // });
+
+    auto f = _impl->ha.set_uri(_impl->_uri);
 }
 
 auto vector_store_client::stop() -> future<> {
