@@ -8,6 +8,7 @@
 
 #include "vector_store_client.hh"
 #include "vector_search/high_availability.hh"
+#include "vector_search/exception.hh"
 #include "cql3/statements/select_statement.hh"
 #include "cql3/type_json.hh"
 #include "db/config.hh"
@@ -532,41 +533,25 @@ struct vector_store_client::impl {
 
     auto ann(keyspace_name keyspace, index_name name, schema_ptr schema, embedding embedding, limit limit, abort_source& as)
             -> future<std::expected<primary_keys, ann_error>> {
-        // if (is_disabled()) {
-        //     vslogger.error("Disabled Vector Store while calling ann");
-        //     co_return std::unexpected{disabled{}};
-        // }
-
-        // auto path = format("/api/v1/indexes/{}/{}/ann", keyspace, name);
-        // auto content = write_ann_json(std::move(embedding), limit);
-
-        // try {
-        auto content = co_await ha.ann(std::move(keyspace), std::move(name), std::move(embedding), limit, &as);
-        // }
-
-
-        // auto resp = co_await make_request(operation_type::POST, std::move(path), std::move(content), as);
-        // if (!resp) {
-        //     co_return std::unexpected{std::visit(
-        //             [](auto&& err) {
-        //                 return ann_error{err};
-        //             },
-        //             resp.error())};
-        // }
-
-        // if (resp->status != status_type::ok) {
-        //     vslogger.error("Vector Store returned error: HTTP status {}: {}", resp->status, seastar::value_of([&resp] {
-        //         return response_content_to_sstring(resp->content);
-        //     }));
-        //     co_return std::unexpected{service_error{resp->status}};
-        // }
-
         try {
+            auto content = co_await ha.ann(std::move(keyspace), std::move(name), std::move(embedding), limit, &as);
             auto response = read_ann_json(rjson::parse(std::move(content)), schema);
             co_return response;
         } catch (const rjson::error& e) {
-            vslogger.error("Vector Store returned invalid JSON: {}", e.what());
+            vslogger.error("{}", e.what());
             co_return std::unexpected{service_reply_format_error{}};
+        } catch (const vector_search::service_address_unavailable_exception& e) {
+            vslogger.error("{}", e.what());
+            co_return std::unexpected{addr_unavailable{}};
+        } catch (const vector_search::service_disabled_exception& e) {
+            vslogger.error("{}", e.what());
+            co_return std::unexpected{disabled{}};
+        } catch (const vector_search::service_status_exception& e) {
+            vslogger.error("{}", e.what());
+            co_return std::unexpected{service_error{e.status()}};
+        } catch (...) {
+            vslogger.error("Vector Store ann request failed with unknown exception");
+            co_return std::unexpected{service_unavailable{}};
         }
     }
 };
@@ -724,6 +709,7 @@ public:
     };
 
     auto stop() -> future<> {
+        co_await _impl->ha.stop();
         _impl->_dns_observer = nullptr;
         co_await _notifier.unregister_listener(this);
     }
@@ -782,7 +768,8 @@ void vector_store_client_tester::set_http_request_retries(vector_store_client& v
 }
 
 void vector_store_client_tester::set_dns_resolver(vector_store_client& vsc, std::function<future<std::optional<inet_address>>(sstring const&)> resolver) {
-    vsc._impl->dns_resolver = std::move(resolver);
+    vsc._impl->dns_resolver = resolver;
+    vsc._impl->ha.set_resolver(resolver);
 }
 
 // void vector_store_client_tester::trigger_dns_resolver(vector_store_client& vsc) {

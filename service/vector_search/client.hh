@@ -31,6 +31,10 @@ public:
     seastar::future<ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
+    seastar::future<> close() {
+        return _http_client.close();
+    }
+
 private:
     seastar::future<std::vector<seastar::temporary_buffer<char>>> request(seastar::http::request req);
 

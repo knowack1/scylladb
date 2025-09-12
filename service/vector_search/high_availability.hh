@@ -1,6 +1,6 @@
 #pragma once
 
-#include "node.hh"
+#include "client.hh"
 #include "seastar/core/future.hh"
 #include <seastar/core/sstring.hh>
 #include <vector>
@@ -27,13 +27,14 @@ public:
 
     seastar::future<> set_uri(std::optional<uri> uri);
 
-    // bool is_disabled() const {
-    //     return !_uri.has_value();
-    // }
+    void set_resolver(dns_resolver resolver) {
+        _resolver = std::move(resolver);
+    }
+
+    seastar::future<> stop();
+
 
 private:
-    using nodes = std::vector<seastar::lw_shared_ptr<node>>;
-
     seastar::future<> refresh_client_address();
     seastar::future<seastar::lw_shared_ptr<client>> get_client();
 

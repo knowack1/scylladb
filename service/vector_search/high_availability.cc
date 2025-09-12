@@ -43,9 +43,8 @@ seastar::future<client::ann_result> high_availability::ann(
                 throw;
             }
         } catch (...) {
-
         }
-        // Referesh the client and retry
+        // Refresh client address and retry
         co_await refresh_client_address();
         client = co_await get_client();
     }
@@ -61,6 +60,7 @@ seastar::future<> high_availability::refresh_client_address() {
     if (_uri) {
         auto addr = co_await _resolver(_uri->host);
         if (addr) {
+            co_await stop();
             _client = seastar::make_lw_shared<client>(endpoint{_uri->host, _uri->port, *addr});
             co_return;
         }
@@ -77,6 +77,12 @@ seastar::future<seastar::lw_shared_ptr<client>> high_availability::get_client() 
         throw service_address_unavailable_exception{};
     }
     co_return _client;
+}
+
+seastar::future<> high_availability::stop() {
+    if (_client) {
+        co_await _client->close();
+    }
 }
 
 
