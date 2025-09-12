@@ -61,7 +61,8 @@ client::client(::service::vector_search::endpoint endpoint_)
 
 seastar::future<client::node_status> client::status() {
     auto req = http::request::make(httpd::operation_type::GET, _endpoint.host, "/api/v1/status");
-    auto body = co_await request(std::move(req));
+    auto as = abort_source();
+    auto body = co_await request(std::move(req), &as);
     co_return read_status_body(std::move(body));
 }
 
@@ -72,10 +73,10 @@ seastar::future<client::ann_result> client::ann(
     auto req = http::request::make(httpd::operation_type::POST, _endpoint.host, std::move(path));
     req.write_body("json", std::move(content));
 
-    co_return co_await request(std::move(req));
+    co_return co_await request(std::move(req), as);
 }
 
-seastar::future<std::vector<seastar::temporary_buffer<char>>> client::request(http::request req) {
+seastar::future<std::vector<seastar::temporary_buffer<char>>> client::request(http::request req, seastar::abort_source* as) {
     auto resp = std::vector<seastar::temporary_buffer<char>>{};
     auto status = seastar::http::reply::status_type::ok;
     auto handler = [&resp, &status](http::reply const& reply, input_stream<char> body) -> future<> {
@@ -83,7 +84,7 @@ seastar::future<std::vector<seastar::temporary_buffer<char>>> client::request(ht
         resp = co_await util::read_entire_stream(body);
     };
 
-    co_await _http_client.make_request(std::move(req), std::move(handler), std::nullopt, nullptr);
+    co_await _http_client.make_request(std::move(req), std::move(handler), std::nullopt, as);
     if (status != seastar::http::reply::status_type::ok) {
         throw service_status_exception(status, to_string(resp));
     }

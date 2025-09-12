@@ -534,6 +534,7 @@ struct vector_store_client::impl {
     auto ann(keyspace_name keyspace, index_name name, schema_ptr schema, embedding embedding, limit limit, abort_source& as)
             -> future<std::expected<primary_keys, ann_error>> {
         try {
+            vslogger.error("KAROL: {}", "Starting ANN request");
             auto content = co_await ha.ann(std::move(keyspace), std::move(name), std::move(embedding), limit, &as);
             auto response = read_ann_json(rjson::parse(std::move(content)), schema);
             co_return response;
@@ -549,6 +550,12 @@ struct vector_store_client::impl {
         } catch (const vector_search::service_status_exception& e) {
             vslogger.error("{}", e.what());
             co_return std::unexpected{service_error{e.status()}};
+        } catch (const seastar::abort_requested_exception& e) {
+            vslogger.error("{}", e.what());
+            co_return std::unexpected{aborted{}};
+        } catch (const std::exception& e) {
+            vslogger.error("{}", e.what());
+            co_return std::unexpected{service_unavailable{}};
         } catch (...) {
             vslogger.error("Vector Store ann request failed with unknown exception");
             co_return std::unexpected{service_unavailable{}};

@@ -36,7 +36,7 @@ public:
     }
 
 private:
-    seastar::future<std::vector<seastar::temporary_buffer<char>>> request(seastar::http::request req);
+    seastar::future<std::vector<seastar::temporary_buffer<char>>> request(seastar::http::request req, seastar::abort_source* as);
 
     ::service::vector_search::endpoint _endpoint;
     seastar::http::experimental::client _http_client;
