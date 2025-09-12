@@ -26,6 +26,7 @@
 #include <exception>
 #include <fmt/ranges.h>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <seastar/core/metrics.hh>
 #include <seastar/coroutine/as_future.hh>
@@ -269,24 +270,6 @@ auto get_host_port(std::string_view uri) -> std::optional<host_port> {
     return *parsed;
 }
 
-// sstring response_content_to_sstring(const std::vector<temporary_buffer<char>>& buffers) {
-//     sstring result;
-//     for (const auto& buf : buffers) {
-//         result.append(buf.get(), buf.size());
-//     }
-//     return result;
-// }
-
-service::vector_search::node_group::dns_resolver make_resolver_adapter(std::function<future<std::optional<inet_address>>(sstring const&)> resolver) {
-    return [resolver = std::move(resolver)](sstring const& host) -> future<std::unordered_set<inet_address>> {
-        auto addr = co_await resolver(host);
-        if (!addr) {
-            co_return std::unordered_set<inet_address>{};
-        }
-        co_return std::unordered_set<inet_address>{*addr};
-    };
-}
-
 } // namespace
 
 namespace service {
@@ -296,7 +279,7 @@ struct vector_store_client::impl {
     utils::observer<sstring> uri_observer;
     lw_shared_ptr<http_client> current_client;
     std::vector<lw_shared_ptr<http_client>> old_clients;
-    std::optional<host_port> _host_port;
+    // std::optional<host_port> _host_port;
     time_point last_dns_refresh;
     gate tasks_gate;
     condition_variable refresh_cv;
@@ -313,19 +296,16 @@ struct vector_store_client::impl {
     impl(utils::config_file::named_value<sstring> cfg)
         : uri_observer(cfg.observe([this](std::string_view uri) -> future<> {
             try {
-                _host_port = get_host_port(uri);
-                trigger_dns_refresh();
-                // if(_host_port) {
-
-                // }
-                co_await ha.uris(
-                        _host_port ? std::vector<vector_search::high_availability::uri>{*_host_port} : std::vector<vector_search::high_availability::uri>{});
+                // _host_port = get_host_port(uri);
+                // trigger_dns_refresh();
+                co_await ha.set_uri(get_host_port(uri));
             } catch (const configuration_exception& e) {
                 vslogger.error("Failed to parse Vector Store service URI: {}", e.what());
-                _host_port = std::nullopt;
+                auto f = ha.set_uri(std::nullopt);
+                // _host_port = std::nullopt;
             }
         }))
-        , _host_port(get_host_port(cfg()))
+        // , _host_port(get_host_port(cfg()))
         , dns_resolver([this](auto const& host) -> future<std::optional<inet_address>> {
             auto addr = co_await coroutine::as_future(net::dns::resolve_name(host));
             if (addr.failed()) {
@@ -342,57 +322,57 @@ struct vector_store_client::impl {
             co_return co_await std::move(addr);
         })
         , client_producer([&]() -> future<lw_shared_ptr<http_client>> {
-            trigger_dns_refresh();
+            // trigger_dns_refresh();
             co_await wait_for_signal(refresh_client_cv, lowres_clock::now() + wait_for_client_timeout);
             co_return current_client;
         })
-        , ha(make_resolver_adapter(dns_resolver)) {
+        , ha(dns_resolver) {
 
-        auto f = ha.uris(_host_port ? std::vector<vector_search::high_availability::uri>{*_host_port} : std::vector<vector_search::high_availability::uri>{});
+        auto f = ha.set_uri(get_host_port(cfg()));
     }
 
-    auto is_disabled() const -> bool {
-        return !bool{_host_port};
-    }
+    // auto is_disabled() const -> bool {
+    //     return !bool{_host_port};
+    // }
 
-    auto host() const -> std::expected<host_name, disabled> {
-        if (is_disabled()) {
-            return std::unexpected{disabled{}};
-        }
-        return _host_port->host;
-    }
+    // auto host() const -> std::expected<host_name, disabled> {
+    //     if (is_disabled()) {
+    //         return std::unexpected{disabled{}};
+    //     }
+    //     return _host_port->host;
+    // }
 
-    auto port() const -> std::expected<port_number, disabled> {
-        if (is_disabled()) {
-            return std::unexpected{disabled{}};
-        }
-        return _host_port->port;
-    }
+    // auto port() const -> std::expected<port_number, disabled> {
+    //     if (is_disabled()) {
+    //         return std::unexpected{disabled{}};
+    //     }
+    //     return _host_port->port;
+    // }
 
-    /// Refresh the http client with a new address resolved from the DNS name.
-    /// If the DNS resolution fails, the current client is set to nullptr.
-    /// If the address is the same as the current one, do nothing.
-    /// Old clients are saved for later cleanup in a specific task.
-    auto refresh_addr() -> future<> {
-        if (is_disabled()) {
-            current_client = nullptr;
-            co_return;
-        }
-        auto [host, port] = *_host_port;
-        auto new_addr = co_await dns_resolver(host);
-        if (!new_addr) {
-            current_client = nullptr;
-            co_return;
-        }
+    // /// Refresh the http client with a new address resolved from the DNS name.
+    // /// If the DNS resolution fails, the current client is set to nullptr.
+    // /// If the address is the same as the current one, do nothing.
+    // /// Old clients are saved for later cleanup in a specific task.
+    // auto refresh_addr() -> future<> {
+    //     if (is_disabled()) {
+    //         current_client = nullptr;
+    //         co_return;
+    //     }
+    //     auto [host, port] = *_host_port;
+    //     auto new_addr = co_await dns_resolver(host);
+    //     if (!new_addr) {
+    //         current_client = nullptr;
+    //         co_return;
+    //     }
 
-        // Check if the new address and port is the same as the current one
-        if (current_client && current_client->connects_to(*new_addr, port)) {
-            co_return;
-        }
+    //     // Check if the new address and port is the same as the current one
+    //     if (current_client && current_client->connects_to(*new_addr, port)) {
+    //         co_return;
+    //     }
 
-        old_clients.emplace_back(current_client);
-        current_client = make_lw_shared<http_client>(*_host_port, std::move(*new_addr));
-    }
+    //     old_clients.emplace_back(current_client);
+    //     current_client = make_lw_shared<http_client>(*_host_port, std::move(*new_addr));
+    // }
 
     /// A task for refreshing the vector store http client.
     auto refresh_addr_task() -> future<> {
@@ -446,62 +426,62 @@ struct vector_store_client::impl {
     }
 
     /// Request a DNS refresh in the specific task.
-    void trigger_dns_refresh() {
-        refresh_cv.signal();
-    }
+    // void trigger_dns_refresh() {
+    //     refresh_cv.signal();
+    // }
 
     /// Cleanup current client
-    auto cleanup_current_client() -> future<> {
-        if (current_client) {
-            co_await current_client->close();
-        }
-        current_client = nullptr;
-    }
+    // auto cleanup_current_client() -> future<> {
+    //     if (current_client) {
+    //         co_await current_client->close();
+    //     }
+    //     current_client = nullptr;
+    // }
 
     /// Cleanup old clients that are no longer used.
-    auto cleanup_old_clients() -> future<> {
-        // iterate over old clients and close them. There is a co_await in the loop
-        // so we need to use [] accessor and copying clients to avoid dangling references of iterators.
-        // NOLINTNEXTLINE(modernize-loop-convert)
-        for (auto it = 0U; it < old_clients.size(); ++it) {
-            auto& client = old_clients[it];
-            if (client && client.owned()) {
-                auto client_cloned = client;
-                co_await client_cloned->close();
-                client_cloned = nullptr;
-            }
-        }
-        std::erase_if(old_clients, [](auto const& client) {
-            return !client;
-        });
-    }
+    // auto cleanup_old_clients() -> future<> {
+    //     // iterate over old clients and close them. There is a co_await in the loop
+    //     // so we need to use [] accessor and copying clients to avoid dangling references of iterators.
+    //     // NOLINTNEXTLINE(modernize-loop-convert)
+    //     for (auto it = 0U; it < old_clients.size(); ++it) {
+    //         auto& client = old_clients[it];
+    //         if (client && client.owned()) {
+    //             auto client_cloned = client;
+    //             co_await client_cloned->close();
+    //             client_cloned = nullptr;
+    //         }
+    //     }
+    //     std::erase_if(old_clients, [](auto const& client) {
+    //         return !client;
+    //     });
+    // }
 
     using get_client_error = std::variant<aborted, addr_unavailable, disabled>;
 
     /// Get the current http client or wait for a new one to be available.
-    auto get_client(abort_source& as) -> future<std::expected<lw_shared_ptr<http_client>, get_client_error>> {
-        if (is_disabled()) {
-            co_return std::unexpected{disabled{}};
-        }
-        if (current_client) {
-            co_return current_client;
-        }
+    // auto get_client(abort_source& as) -> future<std::expected<lw_shared_ptr<http_client>, get_client_error>> {
+    //     if (is_disabled()) {
+    //         co_return std::unexpected{disabled{}};
+    //     }
+    //     if (current_client) {
+    //         co_return current_client;
+    //     }
 
-        auto current_client = co_await coroutine::as_future(client_producer(as));
+    //     auto current_client = co_await coroutine::as_future(client_producer(as));
 
-        if (current_client.failed()) {
-            auto err = current_client.get_exception();
-            if (as.abort_requested()) {
-                co_return std::unexpected{aborted{}};
-            }
-            co_await coroutine::return_exception_ptr(std::move(err));
-        }
-        auto client = co_await std::move(current_client);
-        if (!client) {
-            co_return std::unexpected{addr_unavailable{}};
-        }
-        co_return client;
-    }
+    //     if (current_client.failed()) {
+    //         auto err = current_client.get_exception();
+    //         if (as.abort_requested()) {
+    //             co_return std::unexpected{aborted{}};
+    //         }
+    //         co_await coroutine::return_exception_ptr(std::move(err));
+    //     }
+    //     auto client = co_await std::move(current_client);
+    //     if (!client) {
+    //         co_return std::unexpected{addr_unavailable{}};
+    //     }
+    //     co_return client;
+    // }
 
     struct make_request_response {
         http::reply::status_type status;             ///< The HTTP status of the response.

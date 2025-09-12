@@ -19,13 +19,13 @@ auto write_ann_json(std::vector<float> embedding, std::size_t limit) -> seastar:
 auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::node_status {
     auto doc = rjson::parse(std::move(body));
     if (!doc.HasMember("status")) {
-        throw service_reply_format_error{};
+        throw service_reply_format_exception{};
     }
 
     const auto& status = doc["status"];
 
     if (!status.IsString()) {
-        throw service_reply_format_error{};
+        throw service_reply_format_exception{};
     }
 
     auto status_str = std::string_view(status.GetString(), status.GetStringLength());
@@ -41,9 +41,16 @@ auto read_status_body(std::vector<temporary_buffer<char>> body) -> client::node_
     if (status_str == "SERVING") {
         return client::node_status::serving;
     }
-    throw service_reply_format_error{};
+    throw service_reply_format_exception{};
 }
 
+sstring to_string(const std::vector<temporary_buffer<char>>& buffers) {
+    sstring result;
+    for (const auto& buf : buffers) {
+        result.append(buf.get(), buf.size());
+    }
+    return result;
+}
 
 } // namespace
 
@@ -78,7 +85,7 @@ seastar::future<std::vector<seastar::temporary_buffer<char>>> client::request(ht
 
     co_await _http_client.make_request(std::move(req), std::move(handler), std::nullopt, nullptr);
     if (status != seastar::http::reply::status_type::ok) {
-        throw service_status_error(status);
+        throw service_status_exception(status, to_string(resp));
     }
     co_return resp;
 }

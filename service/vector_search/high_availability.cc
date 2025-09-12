@@ -1,7 +1,8 @@
 #include "high_availability.hh"
 #include "exception.hh"
+#include "seastar/core/abort_source.hh"
 #include <boost/algorithm/string.hpp>
-#include <exception>
+// #include <exception>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/loop.hh>
 
@@ -12,67 +13,68 @@ namespace {
 
 constexpr auto HTTP_REQUEST_RETRIES = 3;
 
-// std::vector<std::string> split(std::string_view str) {
-//     std::vector<std::string> result;
-//     boost::split(result, str, boost::is_any_of(","));
-//     return result;
-// }
-
-std::vector<seastar::lw_shared_ptr<node_group>> make_groups(const std::vector<high_availability::uri>& uris, node_group::dns_resolver resolver) {
-    std::vector<seastar::lw_shared_ptr<node_group>> result;
-    for (const auto& u : uris) {
-        result.push_back(seastar::make_lw_shared<node_group>(u.host, u.port, resolver));
-    }
-    return result;
+bool is_server_error(seastar::http::reply::status_type status) {
+    return status >= seastar::http::reply::status_type(500) && status < seastar::http::reply::status_type(600);
 }
+
 
 } // namespace
 
-// high_availability::high_availability()
-//     : _uri_observer(cfg.observe([](std::string_view uri) {
-
-//     })) {
-//     // auto uris split(cfg());
-// }
 
 seastar::future<client::ann_result> high_availability::ann(
         seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as) {
-    // throw when uris is empty - vector store disabled
-    auto nodes = available_nodes();
+
+    if (!_uri) {
+        throw service_disabled_exception{};
+    }
+
 
     for (size_t i = 0; i < HTTP_REQUEST_RETRIES; i++) {
-        for (const auto& node : nodes) {
-            try {
-                co_return co_await node->ann(std::move(keyspace), std::move(name), std::move(embedding), limit, as);
-            } catch (const std::exception& e) {
-                // TODO: break if aborted
-                continue;
+        auto client = co_await get_client();
+        try {
+            co_return co_await client->ann(std::move(keyspace), std::move(name), std::move(embedding), limit, as);
+        } catch (const abort_requested_exception& e) {
+            // Stop retrying if the request was aborted
+            throw;
+        } catch (const service_status_exception& e) {
+            // Stop retrying if the error is not a server error
+            // This means that client performed a bad request
+            if (!is_server_error(e.status())) {
+                throw;
             }
+        } catch (...) {
+            // Ignore other errors and try the next node
         }
-        nodes = co_await discover_nodes_in_all_groups();
+
+        client = co_await get_client();
     }
-    throw service_unavailable_error();
+    throw service_unavailable_exception();
 }
 
-seastar::future<> high_availability::uris(std::vector<uri> uris) {
-    _groups = make_groups(uris, _resolver);
-    co_await discover_nodes_in_all_groups();
+seastar::future<> high_availability::set_uri(std::optional<uri> uri) {
+    _uri = std::move(uri);
+    co_await refresh_client_address();
 }
 
-seastar::future<high_availability::nodes> high_availability::discover_nodes_in_all_groups() {
-    co_await parallel_for_each(_groups, [](const auto& group) {
-        return group->discover();
-    });
-    co_return available_nodes();
-}
-
-high_availability::nodes high_availability::available_nodes() const {
-    nodes result;
-    for (const auto& group : _groups) {
-        auto tmp = group->available_nodes();
-        result.insert(result.end(), tmp.begin(), tmp.end());
+seastar::future<> high_availability::refresh_client_address() {
+    if (_uri) {
+        auto addr = co_await _resolver(_uri->host);
+        if (addr) {
+            _client = seastar::make_lw_shared<client>(endpoint{_uri->host, _uri->port, *addr});
+        }
     }
-    return result;
+    _client = nullptr;
+}
+
+seastar::future<seastar::lw_shared_ptr<client>> high_availability::get_client() {
+    if (_client) {
+        co_return _client;
+    }
+    co_await refresh_client_address();
+    if (!_client) {
+        throw service_address_unavailable_exception{};
+    }
+    co_return _client;
 }
 
 

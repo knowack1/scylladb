@@ -1,45 +1,41 @@
 #pragma once
 
-#include "node_group.hh"
+#include "node.hh"
 #include "seastar/core/future.hh"
-// #include "utils/observable.hh"
-// #include "utils/config_file.hh"
 #include <seastar/core/sstring.hh>
 #include <vector>
 #include <cstdint>
+#include <boost/noncopyable.hpp>
 
 namespace service::vector_search {
 
-class high_availability {
+class high_availability : private boost::noncopyable {
 public:
     struct uri {
         seastar::sstring host;
         std::uint16_t port;
     };
 
-    explicit high_availability(node_group::dns_resolver resolver)
-        : _resolver(std::move(resolver)) {};
+    using dns_resolver = std::function<seastar::future<std::optional<seastar::net::inet_address>>(seastar::sstring const&)>;
 
-    high_availability(const high_availability&) = delete;
-    high_availability& operator=(const high_availability&) = delete;
-    high_availability(high_availability&&) = delete;
-    high_availability& operator=(high_availability&&) = delete;
-
+    explicit high_availability(dns_resolver resolver)
+        : _resolver(std::move(resolver)) {
+    }
 
     seastar::future<client::ann_result> ann(
             seastar::sstring keyspace, seastar::sstring name, std::vector<float> embedding, std::size_t limit, seastar::abort_source* as);
 
-    seastar::future<> uris(std::vector<uri> uris);
+    seastar::future<> set_uri(std::optional<uri> uri);
 
 private:
     using nodes = std::vector<seastar::lw_shared_ptr<node>>;
 
-    nodes available_nodes() const;
-    seastar::future<nodes> discover_nodes_in_all_groups();
+    seastar::future<> refresh_client_address();
+    seastar::future<seastar::lw_shared_ptr<client>> get_client();
 
-
-    std::vector<seastar::lw_shared_ptr<node_group>> _groups;
-    node_group::dns_resolver _resolver;
+    std::optional<uri> _uri;
+    seastar::lw_shared_ptr<client> _client;
+    dns_resolver _resolver;
 };
 
 

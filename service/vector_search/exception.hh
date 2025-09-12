@@ -6,11 +6,12 @@
 
 namespace service::vector_search {
 
-class service_status_error : public std::runtime_error {
+class service_status_exception : public std::runtime_error {
 public:
-    explicit service_status_error(seastar::http::reply::status_type status)
+    explicit service_status_exception(seastar::http::reply::status_type status, seastar::sstring content)
         : std::runtime_error(fmt::format("Vector Store error: HTTP status {}", status))
-        , _status{status} {
+        , _status{status}
+        , _content{std::move(content)} {
     }
 
 
@@ -18,14 +19,19 @@ public:
         return _status;
     }
 
+    const seastar::sstring& content() const noexcept {
+        return _content;
+    }
+
 
 private:
     seastar::http::reply::status_type _status;
+    seastar::sstring _content;
 };
 
-class service_reply_format_error : public std::runtime_error {
+class service_reply_format_exception : public std::runtime_error {
 public:
-    explicit service_reply_format_error()
+    explicit service_reply_format_exception()
         : std::runtime_error("Vector Store returned an invalid JSON") {
     }
 
@@ -39,12 +45,25 @@ private:
     seastar::http::reply::status_type _status;
 };
 
-class service_unavailable_error : public std::runtime_error {
+class service_unavailable_exception : public std::runtime_error {
 public:
-    explicit service_unavailable_error()
+    explicit service_unavailable_exception()
         : std::runtime_error("Vector Store service is unavailable") {
     }
 };
 
+class service_disabled_exception : public std::runtime_error {
+public:
+    explicit service_disabled_exception()
+        : std::runtime_error("Vector Store service is disabled") {
+    }
+};
+
+class service_address_unavailable_exception : public std::runtime_error {
+public:
+    explicit service_address_unavailable_exception()
+        : std::runtime_error("Vector Store service address is unavailable") {
+    }
+};
 
 } // namespace service::vector_search
