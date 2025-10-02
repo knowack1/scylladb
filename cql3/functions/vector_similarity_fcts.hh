@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "cql3/assignment_testable.hh"
 #include "native_scalar_function.hh"
 
 namespace cql3 {
@@ -19,8 +20,8 @@ static const function_name SIMILARITY_DOT_PRODUCT_FUNCTION_NAME = function_name:
 
 class vector_similarity_fct : public native_scalar_function {
 public:
-    vector_similarity_fct(const sstring& name)
-        : native_scalar_function(name, float_type, {}) {
+    vector_similarity_fct(const sstring& name, const std::vector<data_type>& arg_types)
+        : native_scalar_function(name, float_type, arg_types) {
     }
 
     virtual bool is_pure() const override {
@@ -28,6 +29,9 @@ public:
     }
 
     virtual bytes_opt execute(std::span<const bytes_opt> parameters) override;
+
+    static std::vector<data_type> provide_arg_types(
+            const function_name& name, const std::vector<shared_ptr<assignment_testable>>& provided_args, const data_dictionary::database& db);
 };
 
 } // namespace functions
