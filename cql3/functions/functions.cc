@@ -16,6 +16,7 @@
 #include "cql3/functions/user_function.hh"
 #include "cql3/functions/user_aggregate.hh"
 #include "cql3/functions/uuid_fcts.hh"
+#include "cql3/functions/vector_similarity_fcts.hh"
 #include "data_dictionary/data_dictionary.hh"
 #include "as_json_function.hh"
 #include "cql3/prepare_context.hh"
@@ -397,6 +398,19 @@ functions::get(data_dictionary::database db,
             return nullptr;
         }
     });
+
+    static const std::array<function_name, 3> SIMILARITY_FUNCTIONS = {
+            SIMILARITY_COSINE_FUNCTION_NAME,
+            SIMILARITY_EUCLIDEAN_FUNCTION_NAME,
+            SIMILARITY_DOT_PRODUCT_FUNCTION_NAME,
+    };
+
+    const auto func_name = name.has_keyspace() ? name : name.as_native_function();
+    if (std::find(SIMILARITY_FUNCTIONS.begin(), SIMILARITY_FUNCTIONS.end(), func_name) != SIMILARITY_FUNCTIONS.end()) {
+        auto fun = ::make_shared<vector_similarity_fct>(func_name.name);
+        validate_types(db, keyspace, schema.get(), fun, provided_args, receiver_ks, receiver_cf);
+        return fun;
+    }
 
     if (name.has_keyspace()
                 ? name == TOKEN_FUNCTION_NAME
