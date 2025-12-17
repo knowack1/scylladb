@@ -142,3 +142,48 @@ SEASTAR_TEST_CASE(oversampled_vector_store_results_are_limited_to_cql_limit) {
                 co_await server->stop();
             }));
 }
+
+SEASTAR_TEST_CASE(result_returned_by_vector_store_is_rescored, *boost::unit_test::expected_failures(2)) {
+    auto server = co_await make_vs_mock_server();
+    co_await do_with_cql_env(
+            [&](cql_test_env& env) -> future<> {
+                configure(env.local_qp().vector_store_client()).with_dns({{"server.node", std::vector<std::string>{server->host()}}});
+                env.local_qp().vector_store_client().start_background_tasks();
+                co_await env.execute_cql("CREATE TABLE ks.cf (id int primary key, embedding vector<float, 3>)");
+                auto schema = env.local_db().find_schema("ks", "cf");
+                // Quantization ('b1') is irrelevant for the mock, but the index definition is required.
+                co_await env.execute_cql("CREATE INDEX idx ON ks.cf (embedding) USING 'vector_index' WITH OPTIONS={'rescoring_factor': 2, 'quantization': "
+                                         "'b1', 'similarity_function': 'euclidean'}");
+                // Insert test data with clearly increasing distances from [0,0,0]
+                co_await env.execute_cql("INSERT INTO ks.cf (id, embedding) VALUES (1, [1, 0, 0])"); // Distance from [0,0,0] = 1.0
+                co_await env.execute_cql("INSERT INTO ks.cf (id, embedding) VALUES (2, [2, 0, 0])"); // Distance from [0,0,0] = 4.0
+                co_await env.execute_cql("INSERT INTO ks.cf (id, embedding) VALUES (3, [3, 0, 0])"); // Distance from [0,0,0] = 9.0
+                co_await env.execute_cql("INSERT INTO ks.cf (id, embedding) VALUES (4, [4, 0, 0])"); // Distance from [0,0,0] = 16.0
+
+                // Mock Response: Return all keys but in REVERSE order (Farthest first).
+                // This simulates a vector index returning poor results that need rescoring.
+                server->next_ann_response({http::reply::status_type::ok, R"({
+                    "primary_keys": {
+                        "id": [4, 3, 2, 1]
+                    },
+                    "distances": [0, 0, 0, 0]
+                })"});
+                // Query asking for nearest neighbors to [0,0,0]
+                auto msg = co_await env.execute_cql("SELECT id FROM ks.cf ORDER BY embedding ANN OF [0, 0, 0] LIMIT 2;");
+
+                auto rms = dynamic_pointer_cast<cql_transport::messages::result_message::rows>(msg);
+                BOOST_REQUIRE(rms);
+                const auto& rows = rms->rs().result_set().rows();
+                BOOST_REQUIRE_EQUAL(rows.size(), 2);
+                auto get_id_col_value = [&](const auto& row) {
+                    constexpr auto ID_COL_IDX = 0;
+                    return value_cast<int>(schema->get_column_definition("id")->type->deserialize(row.at(ID_COL_IDX).value()));
+                };
+                BOOST_CHECK_EQUAL(get_id_col_value(rows.at(0)), 1);
+                BOOST_CHECK_EQUAL(get_id_col_value(rows.at(1)), 2);
+            },
+            make_config(format("http://server.node:{}", server->port())))
+            .finally(seastar::coroutine::lambda([&] -> future<> {
+                co_await server->stop();
+            }));
+}
