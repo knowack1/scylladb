@@ -14,9 +14,13 @@
 namespace cql3 {
 namespace functions {
 
+static const function_name SIMILARITY_COSINE_FUNCTION_NAME = function_name::native_function("similarity_cosine");
+static const function_name SIMILARITY_EUCLIDEAN_FUNCTION_NAME = function_name::native_function("similarity_euclidean");
+static const function_name SIMILARITY_DOT_PRODUCT_FUNCTION_NAME = function_name::native_function("similarity_dot_product");
+
 class vector_similarity_fct : public native_scalar_function {
 public:
-    vector_similarity_fct(const std::vector<data_type>& arg_types, const sstring& name)
+    vector_similarity_fct(const sstring& name, const std::vector<data_type>& arg_types)
         : native_scalar_function(name, float_type, arg_types) {
     }
 
@@ -26,44 +30,8 @@ public:
 
     virtual bytes_opt execute(std::span<const bytes_opt> parameters) override;
 
-    virtual float compute_similarity(const std::vector<data_value>& v1, const std::vector<data_value>& v2) = 0;
-
     static std::vector<data_type> provide_arg_types(
             const function_name& name, const std::vector<shared_ptr<assignment_testable>>& provided_args, const data_dictionary::database& db);
-};
-
-class similarity_cosine_fct : public vector_similarity_fct {
-public:
-    similarity_cosine_fct(const std::vector<data_type>& arg_types)
-        : vector_similarity_fct(arg_types, "similarity_cosine") {
-    }
-
-    virtual bytes_opt execute(std::span<const bytes_opt> parameters) override;
-
-    virtual float compute_similarity(const std::vector<data_value>& v1, const std::vector<data_value>& v2) override;
-};
-
-
-class similarity_euclidean_fct : public vector_similarity_fct {
-public:
-    similarity_euclidean_fct(const std::vector<data_type>& arg_types)
-        : vector_similarity_fct(arg_types, "similarity_euclidean") {
-    }
-
-    virtual bytes_opt execute(std::span<const bytes_opt> parameters) override;
-
-    virtual float compute_similarity(const std::vector<data_value>& v1, const std::vector<data_value>& v2) override;
-};
-
-class similarity_dot_product_fct : public vector_similarity_fct {
-public:
-    similarity_dot_product_fct(const std::vector<data_type>& arg_types)
-        : vector_similarity_fct(arg_types, "similarity_dot_product") {
-    }
-
-    virtual bytes_opt execute(std::span<const bytes_opt> parameters) override;
-
-    virtual float compute_similarity(const std::vector<data_value>& v1, const std::vector<data_value>& v2) override;
 };
 
 } // namespace functions

@@ -408,22 +408,10 @@ functions::get(data_dictionary::database db,
             SIMILARITY_DOT_PRODUCT_FUNCTION_NAME,
     };
 
-    auto similarity_fun_it = std::find_if(SIMILARITY_FUNCTIONS.begin(), SIMILARITY_FUNCTIONS.end(), [&name](const auto& f) {
-        return name.has_keyspace() ? name == f : name.name == f.name;
-    });
-
-    if (similarity_fun_it != SIMILARITY_FUNCTIONS.end()) {
-        auto arg_types = vector_similarity_fct::provide_arg_types(name, provided_args, db);
-
-        shared_ptr<vector_similarity_fct> fun;
-        if (*similarity_fun_it == SIMILARITY_COSINE_FUNCTION_NAME) {
-            fun = ::make_shared<similarity_cosine_fct>(arg_types);
-        } else if (*similarity_fun_it == SIMILARITY_EUCLIDEAN_FUNCTION_NAME) {
-            fun = ::make_shared<similarity_euclidean_fct>(arg_types);
-        } else if (*similarity_fun_it == SIMILARITY_DOT_PRODUCT_FUNCTION_NAME) {
-            fun = ::make_shared<similarity_dot_product_fct>(arg_types);
-        }
-
+    const auto func_name = name.has_keyspace() ? name : name.as_native_function();
+    if (std::find(SIMILARITY_FUNCTIONS.begin(), SIMILARITY_FUNCTIONS.end(), func_name) != SIMILARITY_FUNCTIONS.end()) {
+        auto arg_types = vector_similarity_fct::provide_arg_types(func_name, provided_args, db);
+        auto fun = ::make_shared<vector_similarity_fct>(func_name.name, arg_types);
         validate_types(db, keyspace, schema.get(), fun, provided_args, receiver_ks, receiver_cf);
         return fun;
     }
