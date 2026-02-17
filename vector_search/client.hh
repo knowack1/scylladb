@@ -37,10 +37,16 @@ public:
         seastar::net::inet_address ip;
     };
 
+    struct keepalive_params {
+        utils::updateable_value<uint32_t> keepalive_idle_in_s;
+        utils::updateable_value<uint32_t> keepalive_interval_in_s;
+        utils::updateable_value<uint32_t> keepalive_count;
+    };
+
     using request_error = std::variant<aborted_error, service_unavailable_error>;
     using request_result = std::expected<response, request_error>;
 
-    explicit client(logging::logger& logger, endpoint_type endpoint_, utils::updateable_value<uint32_t> request_timeout_in_ms,
+    explicit client(logging::logger& logger, endpoint_type endpoint, keepalive_params keepalive_params,
             ::shared_ptr<seastar::tls::certificate_credentials> credentials);
 
     seastar::future<request_result> request(
@@ -70,7 +76,7 @@ private:
     seastar::future<> _checking_status_future = seastar::make_ready_future();
     seastar::abort_source _as;
     logging::logger& _logger;
-    utils::updateable_value<uint32_t> _request_timeout;
+    keepalive_params _keepalive_params;
 };
 
 } // namespace vector_search

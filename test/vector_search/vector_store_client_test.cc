@@ -901,7 +901,7 @@ SEASTAR_TEST_CASE(vector_store_client_single_status_check_after_concurrent_failu
             }));
 }
 
-SEASTAR_TEST_CASE(vector_store_client_updates_backoff_max_time_from_read_request_timeout_cfg) {
+SEASTAR_TEST_CASE(vector_store_client_updates_backoff_max_time_from_keepalive_config) {
     auto unavail_s = co_await make_unavailable_server();
     auto cfg = make_config();
     cfg.db_config->vector_store_primary_uri.set(format("http://unavail.node:{}", unavail_s->port()));
@@ -913,30 +913,41 @@ SEASTAR_TEST_CASE(vector_store_client_updates_backoff_max_time_from_read_request
                 configure(vs).with_dns({{"unavail.node", std::vector<std::string>{unavail_s->host()}}});
                 vs.start_background_tasks();
 
-                // Set request timeout to 100ms, hence max backoff time is 2x100ms = 200ms.
-                cfg.db_config->read_request_timeout_in_ms.set(100);
+                // Backoff max time is calculated based on keepalive settings:
+                // (vector_store_keepalive_idle_in_s + (vector_store_keepalive_interval_in_s * vector_store_keepalive_count)) * 3 = (1 + (0 * 0)) * 3 = 3
+                // seconds
+                cfg.db_config->vector_store_keepalive_idle_in_s.set(1);
+                cfg.db_config->vector_store_keepalive_count.set(0);
+                cfg.db_config->vector_store_keepalive_interval_in_s.set(0);
                 // Trigger status checking by making ANN request to unavailable server.
                 co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 co_await repeat_until([&unavail_s]() -> future<bool> {
-                    // Wait for 1 ANN request + 4 status check connections (5 total)
-                    co_return unavail_s->connections().size() > 4;
+                    // Wait for 1 ANN request + 6 status check connections (7 total)
+                    co_return unavail_s->connections().size() > 6;
                 });
 
                 // Verify backoff timing between status check connections.
                 // Skip the first connection (ANN request) and analyze status check intervals.
                 auto duration_between_1st_and_2nd_status_check = std::chrono::duration_cast<std::chrono::milliseconds>(
                         unavail_s->connections().at(2).timestamp - unavail_s->connections().at(1).timestamp);
-                BOOST_CHECK_GE(duration_between_1st_and_2nd_status_check, std::chrono::milliseconds(100));
+                BOOST_CHECK_GE(duration_between_1st_and_2nd_status_check, std::chrono::milliseconds(100)); // 100ms is the base backoff time for the first retry
                 BOOST_CHECK_LT(duration_between_1st_and_2nd_status_check, std::chrono::milliseconds(200));
                 auto duration_between_2nd_and_3rd_status_check = std::chrono::duration_cast<std::chrono::milliseconds>(
                         unavail_s->connections().at(3).timestamp - unavail_s->connections().at(2).timestamp);
-                // Max backoff time reached at 200ms, so subsequent status checks use fixed 200ms intervals.
-                BOOST_CHECK_GE(duration_between_2nd_and_3rd_status_check, std::chrono::milliseconds(200)); // 200ms = 100ms * 2
+                BOOST_CHECK_GE(duration_between_2nd_and_3rd_status_check, std::chrono::milliseconds(200));
                 BOOST_CHECK_LT(duration_between_2nd_and_3rd_status_check, std::chrono::milliseconds(400));
                 auto duration_between_3rd_and_4th_status_check = std::chrono::duration_cast<std::chrono::milliseconds>(
                         unavail_s->connections().at(4).timestamp - unavail_s->connections().at(3).timestamp);
-                BOOST_CHECK_GE(duration_between_3rd_and_4th_status_check, std::chrono::milliseconds(200));
-                BOOST_CHECK_LT(duration_between_3rd_and_4th_status_check, std::chrono::milliseconds(400));
+                BOOST_CHECK_GE(duration_between_3rd_and_4th_status_check, std::chrono::milliseconds(400));
+                BOOST_CHECK_LT(duration_between_3rd_and_4th_status_check, std::chrono::milliseconds(800));
+                auto duration_between_4th_and_5th_status_check = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        unavail_s->connections().at(5).timestamp - unavail_s->connections().at(4).timestamp);
+                BOOST_CHECK_GE(duration_between_4th_and_5th_status_check, std::chrono::milliseconds(800));
+                BOOST_CHECK_LT(duration_between_4th_and_5th_status_check, std::chrono::milliseconds(1600));
+                auto duration_between_5th_and_6th_status_check = std::chrono::duration_cast<std::chrono::milliseconds>(
+                        unavail_s->connections().at(6).timestamp - unavail_s->connections().at(5).timestamp);
+                BOOST_CHECK_GE(duration_between_5th_and_6th_status_check, std::chrono::milliseconds(1600));
+                BOOST_CHECK_LT(duration_between_5th_and_6th_status_check, std::chrono::milliseconds(3000));
             },
             cfg)
             .finally(coroutine::lambda([&] -> future<> {
@@ -1132,7 +1143,6 @@ SEASTAR_TEST_CASE(vector_store_client_high_availability_unreachable) {
     auto cfg = make_config();
     cfg.db_config->vector_store_primary_uri.set(format("http://unreachable.node:{}", unreachable.port));
     cfg.db_config->vector_store_secondary_uri.set(format("http://server.node:{}", server->port()));
-    cfg.db_config->request_timeout_in_ms.set(5000);                   // connection timeout to the vector store
     cfg.query_timeout = make_query_timeout(std::chrono::seconds(10)); // CQL SELECT query timeout longer than connection timeout
     co_await do_with_cql_env(
             [&](cql_test_env& env) -> future<> {
@@ -1144,7 +1154,7 @@ SEASTAR_TEST_CASE(vector_store_client_high_availability_unreachable) {
                 auto result = co_await env.execute_cql("CREATE CUSTOM INDEX idx ON ks.test (embedding) USING 'vector_index'");
 
                 // Execute an ANN SELECT. The primary URI points to an unreachable socket,
-                // so the client's connection attempt to the primary will fail (request_timeout_in_ms = 5000).
+                // so the client's connection attempt to the primary will fail.
                 // The client is expected to transparently fall back to the secondary URI and
                 // complete the request successfully. The entire operation must complete within
                 // the configured CQL query timeout (10s), so the test expects a normal rows result.
@@ -1183,4 +1193,90 @@ SEASTAR_TEST_CASE(vector_store_client_abort_due_to_query_timeout) {
             .finally(seastar::coroutine::lambda([&] -> future<> {
                 co_await server->stop();
             }));
+}
+
+SEASTAR_TEST_CASE(vector_store_client_keepalive_default_timeout_is_3s) {
+    auto unreachable = co_await make_unreachable_socket();
+
+    auto cfg = make_config();
+    cfg.db_config->vector_store_primary_uri.set(format("http://unreachable.node:{}", unreachable.port));
+    co_await do_with_cql_env(
+            [&](cql_test_env& env) -> future<> {
+                auto as = abort_source_timeout();
+                auto schema = co_await create_test_table(env, "ks", "test");
+                auto& vs = env.local_qp().vector_store_client();
+                configure(vs).with_dns({{"unreachable.node", std::vector<std::string>{unreachable.host}}});
+                vs.start_background_tasks();
+
+                // The connection timeout is calculated based on keepalive settings. The default is:
+                // idle + count * interval = 1s + 2 * 1s = 3s.
+                // The test verifies that the `ann` call times out after approximately 3 seconds.
+                auto start = std::chrono::steady_clock::now();
+                auto keys = co_await vs.ann("ks", "test", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
+                auto end = std::chrono::steady_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+
+                BOOST_CHECK_GE(duration, std::chrono::seconds(3));
+                BOOST_CHECK_LT(duration, std::chrono::seconds(6)); // Allow some buffer to prevent test flakiness on slower machines
+                BOOST_REQUIRE(!keys);
+                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+            },
+            cfg)
+            .finally(seastar::coroutine::lambda([&] -> future<> {
+                co_await unreachable.close();
+            }));
+}
+
+SEASTAR_TEST_CASE(vector_store_client_keepalive_configurable_timeout) {
+    auto unreachable = co_await make_unreachable_socket();
+
+    auto cfg = make_config();
+    cfg.db_config->vector_store_primary_uri.set(format("http://unreachable.node:{}", unreachable.port));
+    // Total connection timeout is calculated based on keepalive settings:
+    // vector_store_keepalive_idle_in_s + (vector_store_keepalive_interval_in_s * vector_store_keepalive_count) = (1 + 0 * 0) = 1 second
+    cfg.db_config->vector_store_keepalive_count.set(0);
+    cfg.db_config->vector_store_keepalive_idle_in_s.set(1);
+    cfg.db_config->vector_store_keepalive_interval_in_s.set(0);
+    co_await do_with_cql_env(
+            [&](cql_test_env& env) -> future<> {
+                auto as = abort_source_timeout();
+                auto schema = co_await create_test_table(env, "ks", "test");
+                auto& vs = env.local_qp().vector_store_client();
+                configure(vs).with_dns({{"unreachable.node", std::vector<std::string>{unreachable.host}}});
+                vs.start_background_tasks();
+
+                auto start = std::chrono::steady_clock::now();
+                auto keys = co_await vs.ann("ks", "test", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
+                auto end = std::chrono::steady_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::seconds>(end - start);
+
+                BOOST_CHECK_GE(duration, std::chrono::seconds(1));
+                BOOST_CHECK_LT(duration, std::chrono::seconds(3)); // Allow some buffer to prevent test flakiness on slower machines
+                BOOST_REQUIRE(!keys);
+                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+            },
+            cfg)
+            .finally(seastar::coroutine::lambda([&] -> future<> {
+                co_await unreachable.close();
+            }));
+}
+
+BOOST_AUTO_TEST_CASE(vector_store_client_keepalive_invalid_configuration) {
+    // The following condition must be met: idle + count * interval != 0
+
+    auto cfg = config();
+    cfg.vector_store_primary_uri.set("http://server.node:6080");
+    cfg.vector_store_keepalive_idle_in_s.set(0);
+
+    cfg.vector_store_keepalive_count.set(1);
+    cfg.vector_store_keepalive_interval_in_s.set(0);
+    BOOST_CHECK_THROW(vector_search::vector_store_client{cfg}, configuration_exception);
+
+    cfg.vector_store_keepalive_count.set(0);
+    cfg.vector_store_keepalive_interval_in_s.set(1);
+    BOOST_CHECK_THROW(vector_search::vector_store_client{cfg}, configuration_exception);
+
+    cfg.vector_store_keepalive_count.set(0);
+    cfg.vector_store_keepalive_interval_in_s.set(0);
+    BOOST_CHECK_THROW(vector_search::vector_store_client{cfg}, configuration_exception);
 }

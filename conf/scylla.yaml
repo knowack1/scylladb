@@ -897,6 +897,19 @@ rf_rack_valid_keyspaces: false
 # A comma-separated list of secondary vector store node URIs. These nodes are used as a fallback when all primary nodes are unavailable, and are typically located in a different availability zone for high availability.
 # vector_store_secondary_uri: http://vector-store.dns.name:{port}
 #
+# TCP keepalive settings for vector store connections.
+# The overall connection timeout is calculated as:
+#   vector_store_keepalive_idle_in_s + (vector_store_keepalive_interval_in_s * vector_store_keepalive_count)
+# The default values result in a 3-second timeout, which is suitable for most environments.
+# Adjust these values if your environment requires different timing for detecting unresponsive vector store nodes.
+# For High Availability, the CQL query timeout must be greater than the total time it might take to fail over across all vector store nodes.
+# Ensure the following condition is met:
+#   CQL query timeout > (connection timeout * (number of primary nodes + number of secondary nodes))
+# Otherwise, a CQL query might time out before the client can fail over to an available vector store node.
+# vector_store_keepalive_idle_in_s: 1
+# vector_store_keepalive_interval_in_s: 1
+# vector_store_keepalive_count: 2
+#
 # Options for encrypted connections to the vector store. These options are used for HTTPS URIs in vector_store_primary_uri and vector_store_secondary_uri.
 # vector_store_encryption_options:
 #    truststore: <not set, use system trust>

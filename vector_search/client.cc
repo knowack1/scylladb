@@ -7,7 +7,6 @@
  */
 
 #include "client.hh"
-#include "utils.hh"
 #include "utils/exceptions.hh"
 #include "utils/exponential_backoff_retry.hh"
 #include "utils/rjson.hh"
@@ -28,25 +27,29 @@ using namespace std::chrono_literals;
 namespace vector_search {
 namespace {
 
+std::chrono::seconds total_timeout(const client::keepalive_params& params) {
+    return std::chrono::seconds(params.keepalive_idle_in_s.get() + params.keepalive_interval_in_s.get() * params.keepalive_count.get());
+}
+
 class client_connection_factory : public http::experimental::connection_factory {
     client::endpoint_type _endpoint;
     shared_ptr<tls::certificate_credentials> _creds;
 
 public:
     explicit client_connection_factory(
-            client::endpoint_type endpoint, shared_ptr<tls::certificate_credentials> creds, utils::updateable_value<uint32_t> connect_timeout_in_ms)
+            client::endpoint_type endpoint, shared_ptr<tls::certificate_credentials> creds, client::keepalive_params keepalive_params)
         : _endpoint(std::move(endpoint))
         , _creds(std::move(creds))
-        , _connect_timeout_in_ms(std::move(connect_timeout_in_ms)) {
+        , _keepalive_params(std::move(keepalive_params)) {
     }
 
     future<connected_socket> make([[maybe_unused]] abort_source* as) override {
-        auto deadline = std::chrono::steady_clock::now() + timeout();
-        auto socket = co_await with_timeout(deadline, connect());
+        auto tt = total_timeout(_keepalive_params);
+        auto socket = co_await with_timeout(std::chrono::steady_clock::now() + tt, connect());
         socket.set_nodelay(true);
-        socket.set_keepalive_parameters(get_keepalive_parameters(timeout()));
+        socket.set_keepalive_parameters(keepalive_params());
         socket.set_keepalive(true);
-        unsigned int timeout_ms = timeout().count();
+        unsigned int timeout_ms = std::chrono::duration_cast<std::chrono::milliseconds>(tt).count();
         socket.set_sockopt(IPPROTO_TCP, TCP_USER_TIMEOUT, &timeout_ms, sizeof(timeout_ms));
         co_return socket;
     }
@@ -64,16 +67,15 @@ private:
         co_return co_await seastar::connect(addr, {}, transport::TCP);
     }
 
-    std::chrono::milliseconds timeout() const {
-        constexpr std::chrono::milliseconds MIN_TIMEOUT = 5s;
-        auto timeout_ms = std::chrono::milliseconds(_connect_timeout_in_ms.get());
-        if (timeout_ms < MIN_TIMEOUT) {
-            timeout_ms = MIN_TIMEOUT;
-        }
-        return timeout_ms;
+    seastar::net::tcp_keepalive_params keepalive_params() const {
+        return seastar::net::tcp_keepalive_params{
+                .idle = std::chrono::seconds(_keepalive_params.keepalive_idle_in_s.get()),
+                .interval = std::chrono::seconds(_keepalive_params.keepalive_interval_in_s.get()),
+                .count = _keepalive_params.keepalive_count.get(),
+        };
     }
 
-    utils::updateable_value<uint32_t> _connect_timeout_in_ms;
+    client::keepalive_params _keepalive_params;
 };
 
 bool is_server_unavailable(std::exception_ptr& err) {
@@ -103,12 +105,12 @@ auto constexpr BACKOFF_RETRY_MIN_TIME = 100ms;
 
 } // namespace
 
-client::client(logging::logger& logger, endpoint_type endpoint_, utils::updateable_value<uint32_t> request_timeout_in_ms,
-        ::shared_ptr<seastar::tls::certificate_credentials> credentials)
-    : _endpoint(std::move(endpoint_))
-    , _http_client(std::make_unique<client_connection_factory>(_endpoint, std::move(credentials), request_timeout_in_ms))
+client::client(
+        logging::logger& logger, endpoint_type endpoint, keepalive_params keepalive_params, ::shared_ptr<seastar::tls::certificate_credentials> credentials)
+    : _endpoint(std::move(endpoint))
+    , _http_client(std::make_unique<client_connection_factory>(_endpoint, std::move(credentials), keepalive_params))
     , _logger(logger)
-    , _request_timeout(std::move(request_timeout_in_ms)) {
+    , _keepalive_params(std::move(keepalive_params)) {
 }
 
 seastar::future<client::request_result> client::request(
@@ -195,8 +197,9 @@ bool client::is_checking_status_in_progress() const {
 }
 
 std::chrono::milliseconds client::backoff_retry_max() const {
-    std::chrono::milliseconds ret{_request_timeout.get()};
-    return ret * 2;
+    auto tt = total_timeout(_keepalive_params);
+    // Default timeout is 3s, so the default max backoff retry time will be 9s.
+    return std::chrono::duration_cast<std::chrono::milliseconds>(tt) * 3;
 }
 
 } // namespace vector_search

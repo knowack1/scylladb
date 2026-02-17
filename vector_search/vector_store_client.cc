@@ -226,6 +226,15 @@ std::vector<sstring> get_hosts(const std::vector<uri>& primary_uris, const std::
     return ret;
 }
 
+vector_search::client::keepalive_params parse_keepalive_config(const db::config& cfg) {
+    auto total_timeout = cfg.vector_store_keepalive_idle_in_s() + cfg.vector_store_keepalive_interval_in_s() * cfg.vector_store_keepalive_count();
+    if (total_timeout == 0) {
+        throw configuration_exception(fmt::format("Keepalive configuration results in zero timeout: idle {}s + interval {}s * count {} = {}",
+                cfg.vector_store_keepalive_idle_in_s(), cfg.vector_store_keepalive_interval_in_s(), cfg.vector_store_keepalive_count(), total_timeout));
+    }
+    return {cfg.vector_store_keepalive_idle_in_s, cfg.vector_store_keepalive_interval_in_s, cfg.vector_store_keepalive_count};
+}
+
 } // namespace
 
 namespace vector_search {
@@ -245,8 +254,8 @@ struct vector_store_client::impl {
     clients _secondary_clients;
 
     impl(utils::config_file::named_value<sstring> primary_uris, utils::config_file::named_value<sstring> secondary_uris,
-            utils::config_file::named_value<uint32_t> read_request_timeout_in_ms,
-            utils::config_file::named_value<utils::config_file::string_map> encryption_options, invoke_on_others_func invoke_on_others)
+            client::keepalive_params keepalive_params, utils::config_file::named_value<utils::config_file::string_map> encryption_options,
+            invoke_on_others_func invoke_on_others)
         : _primary_uri_observer(primary_uris.observe([this](seastar::sstring uris_csv) {
             handle_uris_changed(std::move(uris_csv), _primary_uris, _primary_clients);
         }))
@@ -272,14 +281,14 @@ struct vector_store_client::impl {
                   [this]() {
                       dns.trigger_refresh();
                   },
-                  read_request_timeout_in_ms, _truststore)
+                  keepalive_params, _truststore)
 
         , _secondary_clients(
                   vslogger,
                   [this]() {
                       dns.trigger_refresh();
                   },
-                  read_request_timeout_in_ms, _truststore) {
+                  keepalive_params, _truststore) {
         _metrics.add_group("vector_store", {seastar::metrics::make_gauge("dns_refreshes", seastar::metrics::description("Number of DNS refreshes"), [this] {
             return dns_refreshes;
         }).aggregate({seastar::metrics::shard_label})});
@@ -355,7 +364,7 @@ struct vector_store_client::impl {
 };
 
 vector_store_client::vector_store_client(config const& cfg)
-    : _impl(std::make_unique<impl>(cfg.vector_store_primary_uri, cfg.vector_store_secondary_uri, cfg.read_request_timeout_in_ms,
+    : _impl(std::make_unique<impl>(cfg.vector_store_primary_uri, cfg.vector_store_secondary_uri, parse_keepalive_config(cfg),
               cfg.vector_store_encryption_options, [this](auto func) {
                   return container().invoke_on_others([func = std::move(func)](auto& self) {
                       return func(*self._impl);
@@ -380,8 +389,8 @@ auto vector_store_client::is_disabled() const -> bool {
     return _impl->is_disabled();
 }
 
-auto vector_store_client::ann(keyspace_name keyspace, index_name name, schema_ptr schema, vs_vector vs_vector, limit limit, const rjson::value& filter, abort_source& as)
-        -> future<std::expected<primary_keys, ann_error>> {
+auto vector_store_client::ann(keyspace_name keyspace, index_name name, schema_ptr schema, vs_vector vs_vector, limit limit, const rjson::value& filter,
+        abort_source& as) -> future<std::expected<primary_keys, ann_error>> {
     return _impl->ann(keyspace, name, schema, vs_vector, limit, filter, as);
 }
 

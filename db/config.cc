@@ -1168,6 +1168,12 @@ db::config::config(std::shared_ptr<db::extensions> exts)
         "A comma-separated list of primary vector store node URIs. These nodes are preferred for vector search operations.")
     , vector_store_secondary_uri(this, "vector_store_secondary_uri", liveness::LiveUpdate, value_status::Used, "",
         "A comma-separated list of secondary vector store node URIs. These nodes are used as a fallback when all primary nodes are unavailable, and are typically located in a different availability zone for high availability.")
+    , vector_store_keepalive_idle_in_s(this, "vector_store_keepalive_idle_in_s", value_status::Used, 1,
+        "TCP keepalive idle time in seconds for vector store connections. Time the connection needs to remain idle before TCP starts sending keepalive probes. Default is 1.")
+    , vector_store_keepalive_interval_in_s(this, "vector_store_keepalive_interval_in_s", value_status::Used, 1,
+        "TCP keepalive probe interval in seconds for vector store connections. Time between individual keepalive probes. Default is 1.")
+    , vector_store_keepalive_count(this, "vector_store_keepalive_count", value_status::Used, 2,
+        "TCP keepalive probe count for vector store connections. Maximum number of keepalive probes before the connection is considered dead. Default is 2.")
     , vector_store_encryption_options(this, "vector_store_encryption_options", value_status::Used, {},
         "Options for encrypted connections to the vector store. These options are used for HTTPS URIs in `vector_store_primary_uri` and `vector_store_secondary_uri`. The available options are:\n"
         "* truststore: (Default: <not set, use system truststore>) Location of the truststore containing the trusted certificate for authenticating remote servers.")
