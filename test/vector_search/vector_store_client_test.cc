@@ -271,7 +271,8 @@ SEASTAR_TEST_CASE(vector_store_client_ann_test_disabled) {
 
         auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
         BOOST_REQUIRE(!keys);
-        BOOST_CHECK(std::holds_alternative<vector_store_client::disabled>(keys.error()));
+        BOOST_TEST(std::holds_alternative<vector_store_client::disabled>(keys.error()),
+                "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
     });
 }
 
@@ -289,7 +290,8 @@ SEASTAR_TEST_CASE(vector_store_client_test_ann_addr_unavailable) {
 
                 auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::addr_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::addr_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg);
 }
@@ -309,7 +311,8 @@ SEASTAR_TEST_CASE(vector_store_client_test_ann_service_unavailable) {
 
                 auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally([&server] {
@@ -337,7 +340,8 @@ SEASTAR_TEST_CASE(vector_store_client_test_ann_service_aborted) {
                 auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset(milliseconds(10)));
 
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::aborted>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::aborted>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally([&server] {
@@ -376,37 +380,43 @@ SEASTAR_TEST_CASE(vector_store_client_test_ann_request) {
                 BOOST_REQUIRE_EQUAL(server->ann_requests().back().body, R"({"vector":[0.1,0.2,0.3],"limit":2})");
                 BOOST_REQUIRE_EQUAL(server->ann_requests().back().path, "/api/v1/indexes/ks/idx/ann");
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // missing distances in the reply - service should return format error
                 server->next_ann_response({status_type::ok, R"({"primary_keys":{"pk1":[5,6],"pk2":[7,8],"ck1":[9,1],"ck2":[2,3]},"distances1":[0.1,0.2]})"});
                 keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // missing pk1 key in the reply - service should return format error
                 server->next_ann_response({status_type::ok, R"({"primary_keys":{"pk11":[5,6],"pk2":[7,8],"ck1":[9,1],"ck2":[2,3]},"distances":[0.1,0.2]})"});
                 keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // missing ck1 key in the reply - service should return format error
                 server->next_ann_response({status_type::ok, R"({"primary_keys":{"pk1":[5,6],"pk2":[7,8],"ck11":[9,1],"ck2":[2,3]},"distances":[0.1,0.2]})"});
                 keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // wrong size of pk2 key in the reply - service should return format error
                 server->next_ann_response({status_type::ok, R"({"primary_keys":{"pk1":[5,6],"pk2":[7],"ck1":[9,1],"ck2":[2,3]},"distances":[0.1,0.2]})"});
                 keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // wrong size of ck2 key in the reply - service should return format error
                 server->next_ann_response({status_type::ok, R"({"primary_keys":{"pk1":[5,6],"pk2":[7,8],"ck1":[9,1],"ck2":[2]},"distances":[0.1,0.2]})"});
                 keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_reply_format_error>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
 
                 // correct reply - service should return keys
                 server->next_ann_response({status_type::ok, CORRECT_RESPONSE_FOR_TEST_TABLE});
@@ -474,14 +484,15 @@ SEASTAR_TEST_CASE(vector_store_client_test_filtering_ann_cql) {
                 server->next_ann_response({http::reply::status_type::ok, R"({"primary_keys":{"pk1":[5],"pk2":[7],"ck1":[9],"ck2":[2]},"distances":[0.1]})"});
 
                 // Execute CQL query with WHERE clause filter
-                auto msg = co_await env.execute_cql("SELECT pk1, pk2, ck1, ck2 FROM ks.idx WHERE pk1 IN (5, 6) ORDER BY embedding ANN OF [0.1, 0.2, 0.3] LIMIT 2");
+                auto msg =
+                        co_await env.execute_cql("SELECT pk1, pk2, ck1, ck2 FROM ks.idx WHERE pk1 IN (5, 6) ORDER BY embedding ANN OF [0.1, 0.2, 0.3] LIMIT 2");
 
                 // Process results - expect 1 row with values [5, 7, 9, 2]
                 assert_that(msg).is_rows().with_rows({{
-                    {byte_type->decompose(int8_t(5))},
-                    {byte_type->decompose(int8_t(7))},
-                    {byte_type->decompose(int8_t(9))},
-                    {byte_type->decompose(int8_t(2))},
+                        {byte_type->decompose(int8_t(5))},
+                        {byte_type->decompose(int8_t(7))},
+                        {byte_type->decompose(int8_t(9))},
+                        {byte_type->decompose(int8_t(2))},
                 }});
             },
             cfg)
@@ -835,7 +846,8 @@ SEASTAR_TEST_CASE(vector_store_client_node_recovery_after_backoff) {
                 auto result = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
 
                 BOOST_CHECK(!result);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(result.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(result.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, result.error()));
 
                 // Replace the unavailable server with an available one.
                 avail_server = std::make_unique<vs_mock_server>();
@@ -1101,7 +1113,8 @@ SEASTAR_TEST_CASE(vector_store_client_https_wrong_hostname) {
                 auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
 
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally(seastar::coroutine::lambda([&] -> future<> {
@@ -1127,7 +1140,8 @@ SEASTAR_TEST_CASE(vector_store_client_https_different_ca_cert_verification_error
                 auto keys = co_await vs.ann("ks", "idx", schema, std::vector<float>{0.1, 0.2, 0.3}, 2, rjson::empty_object(), as.reset());
 
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally(seastar::coroutine::lambda([&] -> future<> {
@@ -1219,7 +1233,8 @@ SEASTAR_TEST_CASE(vector_store_client_keepalive_default_timeout_is_3s) {
                 BOOST_CHECK_GE(duration, std::chrono::seconds(3));
                 BOOST_CHECK_LT(duration, std::chrono::seconds(6)); // Allow some buffer to prevent test flakiness on slower machines
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally(seastar::coroutine::lambda([&] -> future<> {
@@ -1253,7 +1268,8 @@ SEASTAR_TEST_CASE(vector_store_client_keepalive_configurable_timeout) {
                 BOOST_CHECK_GE(duration, std::chrono::seconds(1));
                 BOOST_CHECK_LT(duration, std::chrono::seconds(3)); // Allow some buffer to prevent test flakiness on slower machines
                 BOOST_REQUIRE(!keys);
-                BOOST_CHECK(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()));
+                BOOST_TEST(std::holds_alternative<vector_store_client::service_unavailable>(keys.error()),
+                        "Unexpected error: " << std::visit(vector_search::error_visitor{}, keys.error()));
             },
             cfg)
             .finally(seastar::coroutine::lambda([&] -> future<> {
